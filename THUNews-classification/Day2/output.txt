@@ -1,0 +1,51 @@
+sizes： [8000, 16000, 32000]            models_dir： .            train_jsonl： train.jsonl            holdout_jsonl：holdout.jsonl            output_root: experiments 
+
+===== vocab_size = 8000 =====
+Loaded SPM model -> spm_bpe_8000.model
+Avg tokens/sample = 718.55, OOV rate = 0.0009
+train.jsonl
+Training classifier...
+/root/miniconda3/lib/python3.8/site-packages/sklearn/linear_model/_logistic.py:460: ConvergenceWarning: lbfgs failed to converge (status=1):
+STOP: TOTAL NO. of ITERATIONS REACHED LIMIT.
+
+Increase the number of iterations (max_iter) or scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+Model saved to experiments/ckpt_bpe_8000/classifier_pipeline.joblib
+Classification accuracy = 0.9380
+
+===== vocab_size = 16000 =====
+Loaded SPM model -> spm_bpe_16000.model
+Avg tokens/sample = 636.11, OOV rate = 0.0010
+train.jsonl
+Training classifier...
+/root/miniconda3/lib/python3.8/site-packages/sklearn/linear_model/_logistic.py:460: ConvergenceWarning: lbfgs failed to converge (status=1):
+STOP: TOTAL NO. of ITERATIONS REACHED LIMIT.
+
+Increase the number of iterations (max_iter) or scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+Model saved to experiments/ckpt_bpe_16000/classifier_pipeline.joblib
+Classification accuracy = 0.9530
+
+===== vocab_size = 32000 =====
+Loaded SPM model -> spm_bpe_32000.model
+Avg tokens/sample = 579.85, OOV rate = 0.0011
+train.jsonl
+Training classifier...
+/root/miniconda3/lib/python3.8/site-packages/sklearn/linear_model/_logistic.py:460: ConvergenceWarning: lbfgs failed to converge (status=1):
+STOP: TOTAL NO. of ITERATIONS REACHED LIMIT.
+
+Increase the number of iterations (max_iter) or scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+Model saved to experiments/ckpt_bpe_32000/classifier_pipeline.joblib
+Classification accuracy = 0.9540
+
+All experiments done. Results saved to vocab_size_experiment_results.json
