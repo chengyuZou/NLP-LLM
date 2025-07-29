@@ -33,53 +33,56 @@ THUCNews/
 去空、去重
 保存成标准 JSONL 格式，用于后续模型训练
 
-import os
-import glob
-import pandas as pd
-
-# 1. 设置参数
-data_dir = "THUCNews1"  # 改成你实际路径
-selected_labels = ["财经", "教育", "科技", "娱乐", "体育"]
-samples_per_class = 2000
-random_seed = 42
-
-# 2. 读取并清洗所有样本
-records = []
-
-for label in selected_labels:
-    class_path = os.path.join(data_dir, label)
-    txt_files = glob.glob(os.path.join(class_path, "*.txt"))
+    import os
+    import glob
+    import pandas as pd
     
-    print(f"正在读取类别 {label}，共 {len(txt_files)} 条")
+    data_dir = "THUCNews1"
+    selected_labels = ["财经", "教育", "科技", "娱乐", "体育"]
+    samples_per_class = 2000
+    random_seed = 42
+    
+    records = []
+    
+    for label in selected_labels:
+        class_path = os.path.join(data_dir, label)
+        txt_files = glob.glob(os.path.join(class_path, "*.txt"))
+
+    print(f"读取 {label} 类，共 {len(txt_files)} 文件")
 
     for fp in txt_files:
         try:
             with open(fp, "r", encoding="utf-8") as f:
                 text = f.read().strip()
-            if text:  # 丢弃空文本
+            if text:
                 records.append({"text": text, "label": label})
         except Exception as e:
             print(f"读取失败：{fp}，错误：{e}")
 
-## Step 3. 构建 DataFrame 并去重
-df = pd.DataFrame(records)
-print("原始总数量：", len(df))
-df.drop_duplicates(subset=["text"], inplace=True)
-df.dropna(subset=["text", "label"], inplace=True)
-print("去重 & 去空后：", len(df))
-
-## Step 4. 按类别均匀抽样
-df_sampled = (
-    df.groupby("label", group_keys=False)
-      .apply(lambda x: x.sample(n=samples_per_class, random_state=random_seed))
-      .reset_index(drop=True)
-)
-print("采样后总数量：", len(df_sampled))
-
-# 5. 保存为 JSON Lines 格式
-output_file = "THUCNews5类2000条.jsonl"
-df_sampled.to_json(output_file, orient="records", lines=True, force_ascii=False)
-print(f"已保存为 {output_file}")
+    print("总记录数：", len(records))
+    print("前几条：", records[:2])
+    
+    # 如果 records 是空的，就报错退出
+    if not records:
+        raise ValueError("❌ 没有读取到任何有效文本，请检查路径是否正确，以及是否是 UTF-8 编码")
+    
+    df = pd.DataFrame(records)
+    print("DataFrame 列名：", df.columns.tolist())
+    
+    # 去空、去重
+    df.dropna(subset=["text"], inplace=True)
+    df.drop_duplicates(subset=["text"], inplace=True)
+    
+    # 每类采样
+    df_sampled = (
+        df.groupby("label", group_keys=False)
+          .apply(lambda x: x.sample(n=samples_per_class, random_state=random_seed))
+          .reset_index(drop=True)
+    )
+    
+    # 保存
+    df_sampled.to_json("THUCNews5类2000条.jsonl", orient="records", lines=True, force_ascii=False)
+    print("✅ 已保存为 JSONL 格式")
 
 
 ✅ 输出文件结构（JSONL 样例）
