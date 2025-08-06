@@ -13,3 +13,6 @@
 
 4	- 用 Hugging Face 的 Trainer API 微调 bert-base-chinese
 - 输出 baseline Validation Accuracy / F1	Trainer 全流程
+
+5	- 增加 Early Stopping、LR Scheduler（Cosine Decay / Warmup）
+- 画出 Loss & LR 曲线（TensorBoard）	学习调度器 & 监控
