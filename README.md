@@ -10,3 +10,6 @@
   
 3	- 封装 datasets.Dataset ，实现自定义 DataCollator 
 - 可视化样本长度分布、Token 分布	datasets 深度用法
+
+4	- 用 Hugging Face 的 Trainer API 微调 bert-base-chinese
+- 输出 baseline Validation Accuracy / F1	Trainer 全流程
