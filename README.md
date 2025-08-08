@@ -16,3 +16,6 @@
 
 5	- 增加 Early Stopping、LR Scheduler（Cosine Decay / Warmup）
 - 画出 Loss & LR 曲线（TensorBoard）	学习调度器 & 监控
+
+6	- 实现两种数据增强：同义词替换（Synonym Aug）+ EDA 	
+- 文本增强原理
