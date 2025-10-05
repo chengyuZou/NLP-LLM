@@ -1,0 +1,874 @@
+# 基于BaiChuan2-7B的法律微调大模型+RAG问答
+
+## 1.数据集
+所选数据集为法律QA
+**[法律QA](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT), 其中取[DISC-Law-SFT-Pair-QA-released.jsonl]这一项**
+下载完后放在当前文件夹后解压
+
+### 1.1 AutoDL平台下载HF数据
+若无法下载或显示无法连接到huggingface.co，请参考[CSDN博客](https://blog.csdn.net/Katherine_java/article/details/146294013?ops_request_misc=&request_id=&biz_id=102&utm_term=AutoDL%E8%BF%9E%E6%8E%A5HF&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduweb~default-1-146294013.142^v102^pc_search_result_base1&spm=1018.2226.3001.4187)
+先在终端输入 [source /etc/network_turbo] 进行学术资源加速
+再下载 hfd 脚本 依次输入 [wget https://hf-mirror.com/hfd/hfd.sh]与[chmod a+x hfd.sh  # 赋予执行权限]
+最后设置镜像环境变量，输入[export HF_ENDPOINT=https://hf-mirror.com  # 临时生效]
+
+### 1.2 AutoDL平台下载包
+先更新,终端输入[sudo apt update]
+安装git-lfs[sudo apt install git-lfs]
+然后可以用HF官网给出的脚本下载
+
+可以用以下两段代码查看数据
+```python
+import json
+file_path = "your_path" #你DISC-Law-SFT-Pair-QA-released.jsonl的路径
+data = []
+with open (file_path , 'r' , encoding='utf-8') as f:  #读取整个文件
+    for line in f:  #逐行读取
+        line = json.loads(line) 
+        data.append(line.strip()) 
+print(len(data))
+print(data[-1])
+print(data[0])
+```
+
+```python
+from datasets import load_dataset
+dataset = load_dataset("json", data_files="DISC-Law-SFT-Pair-QA-released.jsonl" , split="train")
+print(dataset)
+"""
+Dataset({
+    features: ['id', 'input', 'output'],
+    num_rows: 246450
+})
+"""
+```
+
+这一段代码需要你运行，在终端输入[python Data_Process.py]
+构建Prompt训练数据
+```python
+import json
+from datasets import load_dataset
+with open("DISC-Law-SFT-Pair-QA-released.jsonl" , 'r' , encoding='utf-8') as input_file , open("./LoRA_data.jsonl" , 'w', encoding='utf-8') as output_file:
+    for line in input_file:
+        data = json.loads(line.strip())
+        LoRA_data = {
+                "instruction": "你是一名专业律师，请根据中国法律回答以下问题。",
+                "input": data["input"],
+                "output": data["output"]
+        }
+
+        output_file.write(json.dumps(LoRA_data ,  ensure_ascii=False) + "\n")
+
+data = load_dataset("json", data_files="LoRA_data.jsonl" , split="train")
+data = data['train']
+print(data[0])
+```
+
+## 2. Base模型与Tokenizer
+选用[BaiChuan2-7B](https://huggingface.co/baichuan-inc/Baichuan2-7B-Base)
+总大小约15GB
+
+### 2.1 AutoDL平台下载
+与 1.1和1.2同理
+
+```python
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+#加载模型
+model = AutoModelForCausalLM.from_pretrained(
+    "./baichuan-inc/Baichuan2-7B-Base/",
+    trust_remote_code=True,
+    torch_dtype = torch.float16,
+    device_map = "auto")
+#加载分词器
+tokenizer = AutoTokenizer.from_pretrained(
+    "./baichuan-inc/Baichuan2-7B-Base/",
+    use_fast=False,
+    trust_remote_code=True)
+#可以打印出来看看
+print(model)
+print(tokenizer)
+```
+
+## 3. 训练模型
+使用Trainer训练
+```python
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
+from peft import LoraConfig, get_peft_model , TaskTpye
+
+##配置超参数
+OUTPUT_DIR = "./lora_legal_qa_adapter" #保存路径
+SAVE_STEPS = 500 #保存间隔
+EVAL_STEPS = 500 #评估间隔
+tokenizer_max_length = 1024
+
+#加载tokenizer
+tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/" , use_fast=False , trust_remote_code=True)
+tkenizer.pad_token = tokenizer.eos_token
+
+def process_function(examples):
+    input_ids = []
+    attention_masks = []
+    labels = []
+    for i in range(len(examples["input"])):
+        inputs = f"\nhuman: {examplse["instruction"][i].strip()} {examples["inputs"][i].strip()} \n\nAssistant:"
+        inputs = tokenizer(inputs, add_special_tokens = False)
+        response = examples["output"][i].strip() + tokenizer.eos_token
+        response = tokenizer(response, add_special_tokens = False)
+
+        input_id = inputs["input_ids"] + response["input_ids"]
+        attention_mask = input["attention_mask"] + response["attention_mask"]
+        label = [-100] * len(input_id["input_ids"]) + response["input_ids"]
+
+        if len(input_ids) > tokenizer_max_length:
+            input_id = input_id[:tokenizer_max_length]
+            attention_mask = attention_mask[:tokenizer_max_length]
+            label = label[:tokenizer_max_length]
+        else:
+            padding_length = tokenizer_max_length - len(input_id)
+            input_id.extend([tokenizer.pad_token_id] * padding_length)
+            attention_mask.extend([0] * padding_length)
+            label.extend([-100] * padding_length)
+    
+    input_ids.append(input_id)
+    attention_masks.append(attention_mask)
+    labels.append(label)
+
+    return{
+        "input_ids"： input_ids,
+        "attention_masks"： attention_masks,
+        "labels"： labels
+    }
+
+#加载数据
+dataset = load_dataset("json", data_files="LoRA_data.jsonl" , split="train")
+dataset = dataset.map(process_function, batched=True , remove_columns=dataset.column_names , batch_size = 4)
+
+#划分数据集
+split_dataset = dataset.train_test_split(test_size=0.1 , seed = 42)
+train_dataset = split_dataset["train"]
+eval_dataset = split_dataset["test"]
+
+#数据收集器
+data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+#加载模型
+model = AutoModelForCausalLM.from_pretrained(
+    "./baichuan-inc/Baichuan2-7B-Base/",
+    trust_remote_code=True,
+    torch_dtype = torch.float16,
+    device_map = "auto")
+
+#配置LoRA
+lora_config = LoraConfig(
+    task_type = TaskType.CAUSAL_LM,
+    inference_mode = False,
+    r = 8,
+    lora_alpha = 32,
+    lora_dropout = 0.1,
+    target_modules = ["o_proj", "gate_proj", "down_proj"]
+)
+
+model = get_peft_model(model , lora_config)
+model.print_trainable_parameters()
+
+#配置TrainerArguments
+training_args = TrainingArguments(
+    output_dir = OUTPUT_DIR,
+    overwrite_output_dir = True,
+    num_train_epochs = 3,
+    per_device_train_batch_size = 4,
+    per_device_eval_batch_size = 10,
+    learning_rate = 1e-5,
+    gradient_accumulation_steps = 10,
+    fp16 = True,
+    logging_steps = 10,
+    save_steps = SAVE_STEPS,
+    save_strategy = "steps",
+    eval_steps = EVAL_STEPS,
+    eval_strategy = "steps",
+    load_best_model_at_end = True,
+    metric_for_best_model = "eval_loss",
+    greater_is_better = False
+    warmup_steps = 100,
+    max_grad_norm = 1.0,
+    report_to = None,
+    ddp_find_unused_parameters = False
+)
+
+#配置Trainer
+trainer = Trainer(
+    model = model,
+    tokenizer = tokenizer,
+    args = training_args,
+    train_dataset = train_dataset,
+    eval_dataset = eval_dataset,
+    data_collator = data_collator,
+)
+
+trainer.train()
+
+trainer.save_model()
+
+trainer.save_state()
+```
+终端输入[python train.py]
+训练后可获得LoRA微调模型，但训练时间长，单卡A800-80G 约15H , 消耗显存大，约 55 ~ 60GB ,自己不想跑可以在我这里下
+**[LoRA微调模型](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT)**
+下载完后解压，放在./lora_legal_qa_adapter路径下
+
+## 4. 模型推理
+```python
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/", use_fast=False , trust_remote_code=True)
+base_model = AutoModelForCausalLM.from_pretrained("./Baichuan2-7B-Base/", trust_remote_code=True, torch_dtype = torch.float16, device_map = "auto")
+
+from peft import PeftModel, PeftConfig
+model = PeftModel.from_pretrained(base_model, "./lora_legal_qa_adapter")
+print(model)
+```
+** 
+PeftModelForCausalLM(
+  (base_model): LoraModel(
+    (model): BaichuanForCausalLM(
+      (model): BaichuanModel(
+        (embed_tokens): Embedding(125696, 4096, padding_idx=0)
+        (layers): ModuleList(
+          (0-31): 32 x DecoderLayer(
+            (self_attn): Attention(
+              (W_pack): Linear(in_features=4096, out_features=12288, bias=False)
+              (o_proj): lora.Linear(
+                (base_layer): Linear(in_features=4096, out_features=4096, bias=False)
+                (lora_dropout): ModuleDict(
+                  (default): Dropout(p=0.1, inplace=False)
+                )
+                (lora_A): ModuleDict(
+                  (default): Linear(in_features=4096, out_features=8, bias=False)
+                )
+                (lora_B): ModuleDict(
+                  (default): Linear(in_features=8, out_features=4096, bias=False)
+                )
+                (lora_embedding_A): ParameterDict()
+                (lora_embedding_B): ParameterDict()
+                (lora_magnitude_vector): ModuleDict()
+              )
+              (rotary_emb): RotaryEmbedding()
+            )
+            (mlp): MLP(
+              (gate_proj): lora.Linear(
+                (base_layer): Linear(in_features=4096, out_features=11008, bias=False)
+                (lora_dropout): ModuleDict(
+                  (default): Dropout(p=0.1, inplace=False)
+                )
+                (lora_A): ModuleDict(
+                  (default): Linear(in_features=4096, out_features=8, bias=False)
+                )
+                (lora_B): ModuleDict(
+                  (default): Linear(in_features=8, out_features=11008, bias=False)
+                )
+                (lora_embedding_A): ParameterDict()
+                (lora_embedding_B): ParameterDict()
+                (lora_magnitude_vector): ModuleDict()
+              )
+              (down_proj): lora.Linear(
+                (base_layer): Linear(in_features=11008, out_features=4096, bias=False)
+                (lora_dropout): ModuleDict(
+                  (default): Dropout(p=0.1, inplace=False)
+                )
+                (lora_A): ModuleDict(
+                  (default): Linear(in_features=11008, out_features=8, bias=False)
+                )
+                (lora_B): ModuleDict(
+                  (default): Linear(in_features=8, out_features=4096, bias=False)
+                )
+                (lora_embedding_A): ParameterDict()
+                (lora_embedding_B): ParameterDict()
+                (lora_magnitude_vector): ModuleDict()
+              )
+              (up_proj): Linear(in_features=4096, out_features=11008, bias=False)
+              (act_fn): SiLU()
+            )
+            (input_layernorm): RMSNorm()
+            (post_attention_layernorm): RMSNorm()
+          )
+        )
+        (norm): RMSNorm()
+      )
+      (lm_head): NormHead()
+    )
+  )
+)
+**
+
+```python
+# 测试生成效果
+test_questions = [
+    "违章停车会受到什么处罚？",
+    "劳动合同法保护哪些权益？",
+    "如何申请专利？"
+]
+
+for question in test_questions:
+    prompt = f"问题：{question}\n答案："
+    inputs = tokenizer(prompt , return_tensors = "pt")
+    with torch.no_grad():
+        outputs = moedl.generate(
+            **inputs,
+            max_new_tokens = 200,
+            temperature = 0.7,
+            do_sample = True,
+            padding_token_id = tokenizer.eos_token_id,
+            use_cache = False
+        )
+    response = tokenizer.decode(outputs[0] , skip_special_tokens = True)
+    print(f"问题：{question}")
+    print(f"回答：{response[len(prompt):]}")
+    print("-" * 50)
+```
+**
+问题：违章停车会受到什么处罚？
+回答：1、在机动车道停车，罚款50元，不扣分。2、在非机动车道停车，罚款200元，扣2分，并拖走。3、在消防通道或人行走道停车，罚款200元，扣2分，并拖走。4、在人行道停车，罚款200元，扣2分，并拖走。5、停车超过3分钟，罚款50元。6、在禁停路段停车，罚款200元，扣2分，并拖走。7、不按规定地点停放，罚款200元，扣2分，并拖走。8、临时停车，罚款100元，不扣分。9、占用非机动车道，罚款100元，不扣分。10、占用盲道，罚款500元，不扣分。11、占用消防通道，罚款1000元，不扣分。12、占用公交车道，罚款
+--------------------------------------------------
+问题：劳动合同法保护哪些权益？
+回答：答案：1.劳动合同的订立、履行和终止。2.劳动合同的变更和解除。3.集体合同的签订和履行。4.劳务派遣单位的设立。5.非全日制用工。6.试用期、服务期和违约金。7.用人单位的规章制度。8.劳动报酬。9.社会保险和福利。10.劳动安全卫生。11.女职工和未成年工特殊保护。12.工作时间和休息休假。13.职业培训。14.职业指导。15.劳动监督和劳动争议处理。16.劳动保护。
+--------------------------------------------------
+问题：如何申请专利？
+回答：专利申请分为发明、实用新型和外观设计三种类型，申请专利需要准备相应的材料，具体如下：（1）发明专利申请，请求书、说明书（必要时应当有附图）、权利要求书、摘要及其附图各一式两份；（2）实用新型专利申请，请求书、说明书、摘要及其附图各一式两份；（3）外观设计专利申请，请求书、图片或者照片一式两份。申请外观设计专利的，还可以提交照片。要求保护色彩的，还应当提交彩色图片或者照片一式两份。委托专利代理机构的，应提交委托书。当事人直接办理申请的，应提交其身份证明文件。申请发明专利的，申请文件应当包括：（1）请求书：包括发明名称、申请人和发明人姓名、申请地址、联系方式、联系人、邮编、职务等；（2）说明书：包括独立权利要求、从属权利要求和摘要及其摘要附图。实用新型专利申请文件应当包括：（1）请求
+**
+
+## 5.构建RAG系统
+需要下载bge-large-zh-v1.5模型
+
+```python
+import json
+import torch
+from typing import List, Dict, Any
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.schema import Document
+from langchain.chains import RetrievalQA
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+import logging
+from typing import Optional, List, Mapping, Any
+
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 自定义 LangChain 兼容的 LLM 类
+class BaichuanLLM(LLM):
+    """自定义 Baichuan LLM 包装器"""
+    
+    model: Any
+    tokenizer: Any
+    pipeline: Any
+    
+    def __init__(self, model, tokenizer, **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+        self.tokenizer = tokenizer
+        # 创建 transformers pipeline
+        self.pipeline = pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            max_new_tokens=512,
+            temperature=0.7,
+            top_p=0.9,
+            repetition_penalty=1.1,
+            pad_token_id=tokenizer.eos_token_id
+        )
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        try:
+            # 使用 pipeline 生成文本
+            result = self.pipeline(
+                prompt,
+                max_new_tokens=512,
+                temperature=0.7,
+                do_sample=True,
+                top_p=0.9,
+                repetition_penalty=1.1
+            )
+            return result[0]['generated_text'][len(prompt):].strip()
+        except Exception as e:
+            logger.error(f"生成文本时发生错误: {e}")
+            return f"生成回答时出错: {str(e)}"
+    
+    @property
+    def _identifying_params(self) -> Mapping[str, Any]:
+        return {"name": "Baichuan2-7B-LoRA-Legal"}
+    
+    @property
+    def _llm_type(self) -> str:
+        return "baichuan_legal_qa"
+
+#导入修复问题
+try:
+    from langchain_communtiy.llms import HuggingFacePipeline
+except ImportError:
+    logger.warning("langchain_community 未安装，尝试从 langchain 导入")
+    from langchain.llms import HuggingFacePipeline
+
+#加载数据
+def load_qa_data(file_path: str)-> List[Document]:
+    documents = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line_num , line in enumerate(f , 1):
+                try:
+                    data = json.loads(line)
+                    page_content = f"问题：{data['input']}\n 答案：{data["output"]}"
+                    metadata = {
+                        "id":data.get("id" , f"line_{line_num}"),
+                        "source": "legal_qa",
+                        "line_number": line_num
+                    }
+                    documents.append(Document(page_content = page_content , metadata = metadata))
+                except json.JSONDecodeError as e:
+                    logger.error(f"第{line_num}行数据解析错误：{e}}")
+                    continue
+                except KeyError as e:
+                    logger.error(f"第{line_num}行数据缺少字段：{e}")
+            
+        logger.info(f"成功加载{len(documents)}条数据")
+        return documents
+    except FileNotFoundError:
+        logger.error(f"文件{file_path}不存在")
+        raise
+    except Exception as e:
+        logger.error(f"加载数据时发生错误：{e}")
+        raise
+
+#将文件分块
+def create_chunks(documents: List[Document], chunk_size: int = 256, chunk_overlap: int = 50)-> List[Document]:
+    """
+    将文档分块
+    
+    Args:
+        documents: Document列表
+        chunk_size: 块大小
+        chunk_overlap: 重叠大小
+        
+    Returns:
+        分块后的Document列表
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size = chunk_size, 
+        chunk_overlap = chunk_overlap,
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        length_function = len,
+        is_separator_regex = False)
+    chunk = text_splitter.split_documents(documents)
+    logger.info(f"成功将{len(documents)}条数据分块为{len(chunk)}个块")
+    return chunk
+
+def create_vector_store(chunk: List[Document], model_path: str = "./bge-large-zh-v1.5/")-> FAISS:
+    """
+    创建向量存储
+    
+    Args:
+        chunks: 文档块列表
+        model_path: 嵌入模型路径
+        
+    Returns:
+        FAISS向量存储
+    """
+    try:
+        embeddings = HuggingFaceEmbeddings(
+            model_name = model_path,
+            model_kwargs = {"device": "cuda" if torch.cuda.is_available() else "cpu"},
+            encode_kwargs = {"normalize_embeddings": True,
+                            "batch_size": 64}
+        )
+
+        #创建向量数据库
+        vector_store = FAISS.from_documents(chunk, embeddings)
+        logger.info("成功创建向量数据库")
+        return vector_store , embeddings
+    except Exception as e:
+        logger.error(f"创建向量数据库时发生错误：{e}")
+        raise
+
+#储存数据库到本地
+def save_vector_store(vector_store: FAISS, file_path: str = "faiss_legal_qa_index")-> None:
+    try:
+        vector_store.save_local(file_path)
+        logger.info(f"成功将向量数据库保存到{file_path}")
+    except Exception as e:
+        logger.error(f"保存向量数据库时发生错误：{e}")
+        raise
+
+#加载数据库
+def load_vector_store(path: str, embedding_model: HuggingFaceEmbeddings) -> FAISS:
+    """
+    从本地加载向量存储
+    
+    Args:
+        path: 加载路径
+        embedding_model: 嵌入模型
+        
+    Returns:
+        FAISS向量存储
+    """
+    try:
+        vector_db = FAISS.load_local(path, embedding_model, allow_dangerous_deserialization=True)
+        logger.info(f"向量数据库已从 {path} 加载")
+        return vector_db
+    except Exception as e:
+        logger.error(f"加载向量数据库时发生错误: {e}")
+        raise
+
+#搜索相似文档
+def search_similar_documents(vector_store: FAISS, query: str, k: int = 10)-> List[Document]:
+    """
+    搜索相似文档
+    
+    Args:
+        vector_db: FAISS向量存储
+        query: 查询文本
+        k: 返回结果数量
+        
+    Returns:
+        相似文档列表
+    """
+    try:
+        similar_docs = vector_store.similarity_search(query, k=k)
+        logger.info(f"查询 '{query}' 找到 {len(similar_docs)} 个相似文档")
+        return similar_docs
+    except Exception as e:
+        logger.error(f"搜索相似文档时发生错误：{e}")
+        raise
+
+def initalize_model(base_model_path: str, lora_adapter_path: str)    """
+    初始化模型
+    
+    Args:
+        base_model_path: 基础模型路径
+        lora_adapter_path: LoRA适配器路径
+        
+    Returns:
+        模型和tokenizer
+    """
+    try:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_path,
+            torch_dtype = torch.float16,
+            device_map = "auto",
+            trust_remote_code = True,
+        )
+        model = PeftModel.from_pretrained(base_model, lora_adapter_path)
+
+        tokenizer = AutoTokenizer.from_pretrained(base_model_path , trust_remote_code = True)
+        logger.info("成功初始化模型")
+        return model, tokenizer
+    except Exception as e:
+        logger.error(f"初始化模型时发生错误：{e}")
+        raise
+
+def create_qa_chain(model , tokenizer , vector_store: FAISS , k: int = 3):
+    """
+    创建问答链
+    
+    Args:
+        model: 模型
+        tokenizer: Tokenizer
+        vector_db: 向量数据库
+        k: 检索文档数量
+        
+    Returns:
+        QA链
+    """
+    try:
+        from langchain.llms import HuggingFacePipeline
+        #创建Pipeline
+        text_generation = pipeline(
+            "text-generation",
+            model = model,
+            tokenizer = tokenizer,
+            max_new_tokens = 512,
+            temperature = 0.7,
+            top_p = 0.9,
+            repeat_penalty = 1.1,
+            pad_token_id = tokenizer.eos_token_id
+        )
+        #构建Langchain LLM
+        llm = HuggingFacePipeline(pipeline = text_generation)
+
+        qa_chain = RetrievalQA.from_chain_type(
+            llm = llm,
+            chain_type = "stuff",
+            retriever = vector_store.as_retriever(search_kwargs = {"k": k}),
+            return_source_documents = True
+        )
+        logger.info("成功创建问答链")
+        return qa_chain
+    except Exception as e:
+        logger.error(f"创建问答链时发生错误：{e}")
+        raise
+
+def main():
+    # 配置参数
+    data_file_path = "/root/autodl-tmp/SFT/LoRA/LoRA_data.jsonl"
+    embedding_model_path = "./bge-large-zh-v1.5/"
+    base_model_path = "./Baichuan2-7B-Base/"
+    lora_adapter_path = "./lora_legal_qa_adapter"
+    faiss_index_path = "faiss_legal_qa_index"
+
+    try:
+        # 1.加载数据
+        documents = load_qa_data(data_file_path)
+
+        # 2.数据分块
+        chunk = create_chunks(documents)
+
+        # 3.创建向量数据库
+        vector_store, embeddings = create_vector_store(chunk, embedding_model_path)
+
+        # 4.保存数据库
+        save_vector_store(vector_store, faiss_index_path)
+
+        # 5.相似性搜索
+        query = "劳动合同法保护哪些权益？"
+        similar_docs = search_similar_documents(vector_store, query)
+
+        print(f"针对查询：\n{query}")
+        print("找到的相似文档：")
+        for idx, doc in enumerate(similar_docs):
+            print(f"{idx + 1}: {doc.page_content}")
+            print(f"元数据：{doc.metadata}\n")
+
+        # 6.初始化模型
+        model , tokenizer = initalize_model(base_model_path, lora_adapter_path)
+
+        # 7.创建问答链
+        qa_chain = create_qa_chain(model, tokenizer, vector_store)
+
+        # 8.问答
+        result = qa_chain.invoke({"query": query})
+        print(f"生成的答案：\n{result['result']}")
+        
+        # 显示源文档
+        print("\n参考的源文档：")
+        for idx, doc in enumerate(result['source_documents']):
+            print(f"文档 {idx + 1}: {doc.page_content}")
+    except Exception as e:
+        logger.error(f"程序发生错误：{e}")
+        raise
+if __name__ == "__main__":
+    main()
+```
+终端输入[python data_chain.py]
+
+大致生成如下：
+```python
+参考的源文档：
+root@autodl-container-98b24ebe42-16fe1f96:~/autodl-tmp# python new_chain.py
+INFO:sentence_transformers.SentenceTransformer:Load pretrained SentenceTransformer: ./bge-large-zh-v1.5/
+INFO:faiss.loader:Loading faiss with AVX512 support.
+INFO:faiss.loader:Successfully loaded faiss with AVX512 support.
+INFO:__main__:向量数据库已从 faiss_legal_qa_index 加载
+INFO:__main__:查询 '劳动合同法保护哪些权益？' 找到 10 个相似文档
+针对查询：
+劳动合同法保护哪些权益？
+找到的相似文档：
+1: 问题：某公司未依法与职工签订劳动合同，又未参加社会保险，同时也没有提供充足的职业教育和岗位培训，该如何保护职工的合法权益？
+答案：根据《公司法》第十七条和第十八条的规定，针对某公司未依法与职工签订劳动合同、未参加社会保险，以及未提供充足的职业教育和岗位培训等情况，可以采取以下措施来保护职工的合法权益：
+
+1. 公司应当依法与职工签订劳动合同，确保职工合法权益的得到尊重和保护。
+2. 公司必须参加社会保险，确保职工享有相应的社会保险权益，包括养老保险、医疗保险、失业保险等。
+3. 公司应当加强劳动保护，确保职工的劳动安全和健康。
+4. 公司应该采取多种形式，加强公司职工的职业教育和岗位培训，提高职工素质。
+5. 公司职工可以依照《中华人民共和国工会法》的规定自行组织工会，通过工会来维护职工的合法权益。
+6. 公司应当为本公司工会提供必要的活动条件，支持工会的正常运作。
+7. 公司工会可以代表职工与公司签订集体合同，就职工的劳动报酬、工作时间、福利、保险和劳动安全卫生等事项进行协商和维护。
+8. 公司在重大决策和规章制度制定过程中，应当听取公司工会的意见，并适时听取职工的意见和建议。
+
+总之，以上措施可以帮助保护职工的合法权益，确保公司依法履行对职工的义务，促进公平就业和劳动关系稳定。
+元数据：{'id': 'line_31027', 'source': 'legal_qa', 'line_number': 31027}
+
+2: 问题：某企业的劳动者因为超时工作导致身体出现不适，在向企业管理层提出要求停止加班时，却遭到了拒绝。劳动者想知道有哪些法律可以保护他们的权益。
+
+劳动者有哪些权利可以保障他们的劳动权益？
+答案：根据所提供的相关法律条文，《劳动法》确保劳动者的劳动权益。以下是劳动者的一些权利：
+
+1. 平等就业和选择职业的权利（《劳动法》第三条）：劳动者有权公平地从事职业，并自主选择自己的工作。
+
+2. 取得劳动报酬的权利（《劳动法》第三条）：劳动者有权获得与自己劳动成果相符的合理报酬。
+
+3. 休息休假的权利（《劳动法》第三条）：劳动者有享受休息休假的权利，包括法定节假日和带薪年假。
+
+4. 获得劳动安全卫生保护的权利（《劳动法》第三条）：劳动者有权在工作场所获得良好的劳动安全环境和必要的劳动保护设施。
+
+5. 接受职业技能培训的权利（《劳动法》第三条）：劳动者有权接受与工作相关的职业技能培训，提升自己的工作能力。
+
+6. 享受社会保险和福利的权利（《劳动法》第三条）：劳动者有权享受社会保险和福利，包括养老保险、医疗保险、失业保险和工伤保险等。
+
+7. 提请劳动争议处理的权利（《劳动法》第三条）：劳动者有权依法提起劳动争议，并通过合法程序解决劳动纠纷。
+
+总之，劳动者在工作中享有合法权益，包括就业机会选择权、合理报酬权、休息权、安全保护权、培训权、社会保险权、劳动争议处理权等。用人单位应建立和完善规章制度，保障劳动者行使这些权利，并共同努力提高劳动者的生活水平。（《劳动法》第四条、第五条）
+元数据：{'id': 'line_29706', 'source': 'legal_qa', 'line_number': 29706}
+
+3: 问题：劳动合同应具备哪些条款？
+答案：《劳动合同法》对劳动合同必备条款的规定包括这样几个方面：?用人单位的基本情况：如名称、住所和法定代表人或者主要负责人?劳动者的主要情况：如姓名、住址、居民身份证或者其他有效身份证件号码?劳动合同期限?工作内容和工作地点?工作时间和休息休假?劳动报酬?社会保险?劳动保护、劳动条件和职业危害防护?法律法规规定应当纳入劳动合同的其他事项此外，劳动者和用人单位可以约定试用期、培训、保密、补充保险和福利待遇等其他事项
+元数据：{'id': 'line_5003', 'source': 'legal_qa', 'line_number': 5003}
+
+4: 问题：某家企业未依法保障员工权益，是否违反了《社会法-就业促进法》？有哪些组织可以协助维护员工权益？
+答案：根据《就业促进法》第八条的规定，用人单位应当依法保障劳动者的合法权益。如果某家企业未依法保障员工权益，可以认定违反了《社会法-就业促进法》。
+
+针对这种情况，可以有一些组织可以协助维护员工权益。根据《就业促进法》第九条的规定，工会、共产主义青年团、妇女联合会、残疾人联合会以及其他社会组织都可以依法维护劳动者的劳动权利，它们可以协助人民政府开展促进就业工作，并提供维护员工权益的支持。
+
+因此，如果某家企业未依法保障员工权益，员工可以寻求工会、共产主义青年团、妇女联合会、残疾人联合会或其他社会组织的帮助来维护自己的权益。同时，县级以上人民政府和有关部门也有责任统筹协调产业政策与就业政策，如果相关组织无法维护员工权益，员工还可以向人民政府和有关部门反映情况，寻求进一步的支持和保护。
+
+显示成效的单位和个人可以根据《就业促进法》第十条获得表彰和奖励，而国家鼓励各类企业增加就业岗位。根据《就业促进法》第十二条，国家鼓励各类企业通过兴办产业或者拓展经营增加就业岗位，同时扶持中小企业和发展劳动密集型产业、服务业，以扩大就业。国家也鼓励、支持、引导非公有制经济发展，增加就业岗位。
+
+请注意，以上回答是根据您提供的法律条文和事实得出的结论。
+元数据：{'id': 'line_34053', 'source': 'legal_qa', 'line_number': 34053}
+
+5: 问题：某公司的员工发现自己的工资和劳动合同不符，他们希望通过工会维护自己的合法权益。根据《中华人民共和国工会法》，工会有哪些权利和义务？
+答案：根据《中华人民共和国工会法》，工会享有以下权利和义务：
+
+1. 权利：
+   - 维护和捍卫劳动者的合法权益，包括工资、劳动条件、职业安全与健康等方面的权益。
+   - 参与和监督企业制定和完善劳动规章制度。
+   - 参与劳动关系协调与调解，维护劳动者与雇主之间的合法权益。
+   - 协助劳动争议的解决与调解，包括组织和参与劳动仲裁、劳动法庭的程序。
+   - 参与劳动保护监督，监督雇主的合法用工和保护职工的权益。
+   - 开展职工教育培训，提高劳动者的技能水平和工作能力。
+   - 参与企业决策与管理，维护职工合法权益的代表。
+
+2. 义务：
+   - 组织企业员工参加工会，保障劳动者加入工会的自由和平等权利。
+   - 代表职工与雇主协商和签订劳动合同，维护劳动者的合法权益。
+   - 组织劳动者参与工会活动，培育和发展工会组织。
+   - 向工会会员提供法律援助，维护劳动者的合法权益。
+   - 履行国家委托的其他职责，如协助实施劳动法律法规，参与劳动争议的调解等。
+
+需要注意的是，以上权利和义务应在法律规定的范围内行使和履行。如有具体情况需要更详细的法律分析和解释，请咨询专业法律机构或律师。
+元数据：{'id': 'line_25491', 'source': 'legal_qa', 'line_number': 25491}
+
+6: 问题：某公司采取不公平的劳动制度，不给员工提供合理的薪资、休息时间和健康安全保障等，导致员工的合法权益受到侵害。在此情况下，员工可以通过什么途径来维护自己的权益？
+答案：根据《工会法》第四条、第五条和第六条，员工可以通过工会来维护自己的权益。工会的基本职责是维护职工的合法权益，并通过平等协商和集体合同制度等方式，推动健全劳动关系协调机制，维护职工劳动权益，构建和谐劳动关系。工会通过职工代表大会或其他形式组织职工参与本单位的民主选举、民主协商、民主决策、民主管理和民主监督。工会还建立联系广泛、服务职工的工会工作体系，听取和反映职工的意见和要求，关心职工的生活，帮助职工解决困难，全心全意为职工服务。
+
+所以，员工可以通过参加工会并积极参与工会活动来维护自己的权益。工会可以代表员工与公司进行协商，促使公司提供合理的薪资、休息时间和健康安全保障。员工还可以借助工会的组织力量，通过集体行动、集体谈判等方式来维护自己的权益。重要的是，员工应该了解和行使自己的民主权利，积极参与工会的活动和决策过程，以实现自己的合法权益保护。
+元数据：{'id': 'line_17194', 'source': 'legal_qa', 'line_number': 17194}
+
+7: 问题：某工厂的工会收到了员工关于工作安全问题的反映。工会决定组织员工代表与厂方进行协商，并要求在谈判中维护员工的合法权益和劳动权益。
+
+工会在谈判中要求维护员工的哪些合法权益和劳动权益？
+答案：根据《工会法》第六条，工会在维护职工合法权益时有以下职责：
+1. 维护职工的劳动权益：工会通过平等协商和集体合同制度等方式，推动健全劳动关系协调机制，维护职工的劳动权益。
+2. 代表和维护职工的合法权益：工会代表职工维护其合法权益，包括但不限于工资待遇、工作条件、工作安全等方面的权益。
+3. 构建和谐劳动关系：工会通过参与民主选举、民主协商、民主决策、民主管理和民主监督等方式，维护职工的劳动权益，构建和谐的劳动关系。
+
+另根据《工会法》第七条，工会也有动员和组织职工积极参加经济建设的职责，提高职工的思想道德、技术业务和科学文化素质，建设有理想、有道德、有文化、有纪律的职工队伍，这也是维护职工的劳动权益的一种方式。
+
+因此，在谈判中，工会应维护员工的合法权益和劳动权益，包括但不限于工资待遇、工作条件、工作安全等方面的权益，同时也有义务促进职工的思想道德提高和建设有素质的职工队伍。
+元数据：{'id': 'line_27897', 'source': 'legal_qa', 'line_number': 27897}
+
+8: 问题：劳动合同的规定有哪些?
+答案：《劳动合同法》第十条 【订立书面劳动合同】建立劳动关系，应当订立书面劳动合同。已建立劳动关系，未同时订立书面劳动合同的，应当自用工之日起一个月内订立书面劳动合同。用人单位与劳动者在用工前订立劳动合同的，劳动关系自用工之日起建立。《劳动合同法》第十一条 【未订立书面劳动合同时劳动报酬不明确的解决】用人单位未在用工的同时订立书面劳动合同，与劳动者约定的劳动报酬不明确的，新招用的劳动者的劳动报酬按照集体合同规定的标准执行；没有集体合同或者集体合同未规定的，实行同工同酬。第十二条 【劳动合同的种类】劳动合同分为固定期限劳动合同、无固定期限劳动合同和以完成一定工作任务为期限的劳动合同。
+元数据：{'id': 'line_12718', 'source': 'legal_qa', 'line_number': 12718}
+
+9: 问题：如果一个企业侵害了劳动者的合法权益，造成了财产损失或其他损害，可能会面临哪些责任？
+答案：根据《就业促进法》第六十八条规定，如果一个企业侵害了劳动者的合法权益，造成财产损失或其他损害，该企业将承担民事责任，依法进行赔偿。另外，如果这种侵害构成犯罪，还将依法追究刑事责任。
+
+根据《就业促进法》第六十九条规定，该法自2008年1月1日起施行。
+
+根据《退役军人保障法》第一条规定，为了加强退役军人保障工作，维护退役军人合法权益，根据宪法，制定了该法。
+
+根据《退役军人保障法》第二条规定，退役军人是指从中国人民解放军依法退出现役的军官、军士和义务兵等人员。
+
+综上所述，如果一个企业侵害了劳动者的合法权益，造成了财产损失或其他损害，该企业应依法承担民事责任并赔偿受损劳动者。
+元数据：{'id': 'line_26712', 'source': 'legal_qa', 'line_number': 26712}
+
+10: 问题：某公司女员工因怀孕被公司解除劳动合同，她可以依据哪些法律规定维护自身合法权益？
+答案：根据提供的相关法律规定，《妇女权益保障法》的第三条规定，各级人民政府应该重视和加强妇女权益的保障工作，并负责组织、协调、指导、督促有关部门做好妇女权益的保障工作。根据该法第四条，保障妇女的合法权益是全社会的共同责任，国家机关、社会团体、企业事业单位等都须依法保障妇女的权益。此外，根据该法第七条，国家鼓励妇女运用法律维护自身合法权益。
+
+因此，某公司女员工可以根据《妇女权益保障法》的相关规定维护自身合法权益。她可以向有关部门投诉或寻求法律援助，要求公司依法保障其权益，包括保留劳动合同、禁止性别歧视、提供必要的工作调整等。
+元数据：{'id': 'line_35236', 'source': 'legal_qa', 'line_number': 35236}
+
+`torch_dtype` is deprecated! Use `dtype` instead!
+WARNING:transformers_modules.modeling_baichuan:Xformers is not installed correctly. If you want to use memory_efficient_attention to accelerate training use the following command to install Xformers
+pip install xformers.
+INFO:accelerate.utils.modeling:We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
+Loading checkpoint shards: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2/2 [00:02<00:00,  1.45s/it]
+INFO:__main__:模型加载成功
+使用简单 RAG 方法进行问答...
+/root/miniconda3/lib/python3.12/contextlib.py:105: FutureWarning: `torch.backends.cuda.sdp_kernel()` is deprecated. In the future, this context manager will be removed. Please see `torch.nn.attention.sdpa_kernel()` for the new context manager, with updated signature.
+  self.gen = func(*args, **kwds)
+生成的答案：
+根据法律规定，《劳动合同法》旨在保护劳动者和用人单位双方的合法权益，从而构建和谐稳定的劳动关系。具体来说，该法保护如下几项权益：
+
+1. 订立劳动合同的自由及自愿原则：双方都有权决定是否签订劳动合同，并有选择适合自己的用工形式或工种的权利。
+
+2. 劳动者的知情权和监督权：劳动者有权了解用人单位的基本情况和劳动报酬标准；也有权参与民主管理，并对用人单位的规章制度提出建议。
+
+3. 劳动纪律和规章制度：用人单位依法制定的规章制度须符合国家法律法规，且内容明确具体、便于操作执行。
+
+4. 女职工和未成年工的特殊保护：用人单位不得安排女职工从事禁忌作业，也不得在怀孕期、哺乳期解除劳动合同或降低其工资标准。此外，用人单位还应对未成年工实行特殊保护。
+
+5. 社会保险和福利：用人单位必须为劳动者缴纳社会保险，并提供符合法定标准的福利待遇。
+
+6. 劳动保护：用人单位要为劳动者提供符合国家规定的劳动安全卫生条件，并依法为劳动者提供必要的劳动防护用品和安全设施。
+
+7. 经济补偿金和赔偿金：当劳动合同因违反法律而解除或终止时，用人单位需要支付经济补偿金给劳动者，若给劳动者造成损害的还需承担赔偿责任。
+
+8. 劳务派遣单位的选择：劳动者可以与劳务派遣单位订立劳务协议，并由后者派遣到用工单位从事相应的工作。但是，劳务派遣单位应当具备相应资质和条件，并且按照合同约定向被派遣劳动者支付劳动报酬和相关待遇。
+
+9. 劳务派遣中三方的关系和责任：由于劳务派遣涉及三方关系，因此有必要明晰三方的责任范围及其相互间的法律责任和义务。例如，如果发生争议或纠纷，应由谁作为主体提起诉讼或仲裁等问题都需要进一步明确界定。
+
+综上所述，《劳动合同法》致力于保护劳动者的合法权益，使其能够安心工作并获得应有的回报和保障。同时也要求用人单位遵守相关法律法规，确保劳动关系和谐稳定发展。
+
+参考的源文档：
+文档 1: 问题：某公司未依法与职工签订劳动合同，又未参加社会保险，同时也没有提供充足的职业教育和岗位培训，该如何保护职工的合法权益？
+答案：根据《公司法》第十七条和第十八条的规定，针对某公司未依法与职工签订劳动合同、未参加社会保险，以及未提供充足的职业教育和岗位培训等情况，可以采取以下措施来保护职工的合法权益：
+
+1. 公司应当依法与职工签订劳动合同，确保职工合法权益的得到尊重和保护。
+2. 公司必须参加社会保险，确保职工享有相应的社会保险权益，包括养老保险、医疗保险、失业保险等。
+3. 公司应当加强劳动保护，确保职工的劳动安全和健康。
+4. 公司应该采取多种形式，加强公司职工的职业教育和岗位培训，提高职工素质。
+5. 公司职工可以依照《中华人民共和国工会法》的规定自行组织工会，通过工会来维护职工的合法权益。
+6. 公司应当为本公司工会提供必要的活动条件，支持工会的正常运作。
+7. 公司工会可以代表职工与公司签订集体合同，就职工的劳动报酬、工作时间、福利、保险和劳动安全卫生等事项进行协商和维护。
+8. 公司在重大决策和规章制度制定过程中，应当听取公司工会的意见，并适时听取职工的意见和建议。
+
+总之，以上措施可以帮助保护职工的合法权益，确保公司依法履行对职工的义务，促进公平就业和劳动关系稳定。
+文档 2: 问题：某企业的劳动者因为超时工作导致身体出现不适，在向企业管理层提出要求停止加班时，却遭到了拒绝。劳动者想知道有哪些法律可以保护他们的权益。
+
+劳动者有哪些权利可以保障他们的劳动权益？
+答案：根据所提供的相关法律条文，《劳动法》确保劳动者的劳动权益。以下是劳动者的一些权利：
+
+1. 平等就业和选择职业的权利（《劳动法》第三条）：劳动者有权公平地从事职业，并自主选择自己的工作。
+
+2. 取得劳动报酬的权利（《劳动法》第三条）：劳动者有权获得与自己劳动成果相符的合理报酬。
+
+3. 休息休假的权利（《劳动法》第三条）：劳动者有享受休息休假的权利，包括法定节假日和带薪年假。
+
+4. 获得劳动安全卫生保护的权利（《劳动法》第三条）：劳动者有权在工作场所获得良好的劳动安全环境和必要的劳动保护设施。
+
+5. 接受职业技能培训的权利（《劳动法》第三条）：劳动者有权接受与工作相关的职业技能培训，提升自己的工作能力。
+
+6. 享受社会保险和福利的权利（《劳动法》第三条）：劳动者有权享受社会保险和福利，包括养老保险、医疗保险、失业保险和工伤保险等。
+
+7. 提请劳动争议处理的权利（《劳动法》第三条）：劳动者有权依法提起劳动争议，并通过合法程序解决劳动纠纷。
+
+总之，劳动者在工作中享有合法权益，包括就业机会选择权、合理报酬权、休息权、安全保护权、培训权、社会保险权、劳动争议处理权等。用人单位应建立和完善规章制度，保障劳动者行使这些权利，并共同努力提高劳动者的生活水平。（《劳动法》第四条、第五条）
+文档 3: 问题：劳动合同应具备哪些条款？
+答案：《劳动合同法》对劳动合同必备条款的规定包括这样几个方面：?用人单位的基本情况：如名称、住所和法定代表人或者主要负责人?劳动者的主要情况：如姓名、住址、居民身份证或者其他有效身份证件号
+```
+
+## 6.想法与改进
+### 可视化界面
+### 微调后生成的模型对话生硬，可在基础上进行DPO优化
+### QA数据未进行清洗与筛选，如困惑度筛选，去重等
+### 未成功尝试多卡训练，之前的3卡4090没跑成
+### LangChain流程过于简单，需要进行优化
+### 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
+
