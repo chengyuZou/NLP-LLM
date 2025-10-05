@@ -6,9 +6,17 @@
 下载完后放在当前文件夹后解压
 
 ### 1.1 AutoDL平台下载HF数据
-若无法下载或显示无法连接到huggingface.co，请参考[CSDN博客](https://blog.csdn.net/Katherine_java/article/details/146294013?ops_request_misc=&request_id=&biz_id=102&utm_term=AutoDL%E8%BF%9E%E6%8E%A5HF&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduweb~default-1-146294013.142^v102^pc_search_result_base1&spm=1018.2226.3001.4187)
+若无法下载或显示无法连接到huggingface.co
+
+请参考[CSDN博客](https://blog.csdn.net/Katherine_java/article/details/146294013?ops_request_misc=&request_id=&biz_id=102&utm_term=AutoDL%E8%BF%9E%E6%8E%A5HF&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduweb~default-1-146294013.142^v102^pc_search_result_base1&spm=1018.2226.3001.4187)
+
+
 先在终端输入 source /etc/network_turbo 进行学术资源加速。 
+
+
 再下载 hfd 脚本 依次输入 wget https://hf-mirror.com/hfd/hfd.sh 与 chmod a+x hfd.sh  # 赋予执行权限。
+
+
 最后设置镜像环境变量，输入 export HF_ENDPOINT=https://hf-mirror.com  # 临时生效
 
 ### 1.2 AutoDL平台下载包
@@ -868,5 +876,6 @@ INFO:__main__:模型加载成功
 ### 6.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 6.5 LangChain流程过于简单，需要进行优化
 ### 6.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
