@@ -299,24 +299,24 @@ def main():
     
     try:
         # 1. 加载数据
-        #documents = load_qa_data(data_file_path)
+        documents = load_qa_data(data_file_path)
         
         # 2. 文档分块
-        #chunks = create_chunks(documents, chunk_size=1024, chunk_overlap=50)
+        chunks = create_chunks(documents, chunk_size=1024, chunk_overlap=50)
         
         # 3. 创建向量存储
-        #vector_db, embedding_model = create_vector_store(chunks, embedding_model_path)
+        vector_db, embedding_model = create_vector_store(chunks, embedding_model_path)
         
         # 4. 保存向量存储
-        #save_vector_store(vector_db, faiss_index_path)
-        embedding_model = HuggingFaceEmbeddings(
-            model_name=embedding_model_path,
-            model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-            encode_kwargs={'normalize_embeddings': True,
-                          'batch_size': 64}
-        )
+        save_vector_store(vector_db, faiss_index_path)
+        # embedding_model = HuggingFaceEmbeddings(
+        #     model_name=embedding_model_path,
+        #     model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+        #     encode_kwargs={'normalize_embeddings': True,
+        #                   'batch_size': 64}
+        # )
 
-        vector_db = load_vector_store(faiss_index_path , embedding_model)
+        # vector_db = load_vector_store(faiss_index_path , embedding_model)
         
         # 5. 相似性搜索示例
         query = "劳动合同法保护哪些权益？"
@@ -348,4 +348,5 @@ def main():
         raise
 
 if __name__ == "__main__":
+
     main()
