@@ -7,13 +7,13 @@
 
 ### 1.1 AutoDL平台下载HF数据
 若无法下载或显示无法连接到huggingface.co，请参考[CSDN博客](https://blog.csdn.net/Katherine_java/article/details/146294013?ops_request_misc=&request_id=&biz_id=102&utm_term=AutoDL%E8%BF%9E%E6%8E%A5HF&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduweb~default-1-146294013.142^v102^pc_search_result_base1&spm=1018.2226.3001.4187)
-先在终端输入 [source /etc/network_turbo] 进行学术资源加速
-再下载 hfd 脚本 依次输入 [wget https://hf-mirror.com/hfd/hfd.sh]与[chmod a+x hfd.sh  # 赋予执行权限]
-最后设置镜像环境变量，输入[export HF_ENDPOINT=https://hf-mirror.com  # 临时生效]
+先在终端输入 source /etc/network_turbo 进行学术资源加速。 
+再下载 hfd 脚本 依次输入 wget https://hf-mirror.com/hfd/hfd.sh 与 chmod a+x hfd.sh  # 赋予执行权限。
+最后设置镜像环境变量，输入 export HF_ENDPOINT=https://hf-mirror.com  # 临时生效
 
 ### 1.2 AutoDL平台下载包
-先更新,终端输入[sudo apt update]
-安装git-lfs[sudo apt install git-lfs]
+先更新,终端输入sudo apt update 
+安装git-lfs ， 输入 sudo apt install git-lfs
 然后可以用HF官网给出的脚本下载
 
 可以用以下两段代码查看数据
@@ -42,8 +42,7 @@ Dataset({
 """
 ```
 
-这一段代码需要你运行，在终端输入[python Data_Process.py]
-构建Prompt训练数据
+这一段代码需要你运行，在终端输入 python Data_Process.py 构建Prompt训练数据
 ```python
 import json
 from datasets import load_dataset
@@ -212,8 +211,7 @@ trainer.save_model()
 
 trainer.save_state()
 ```
-终端输入[python train.py]
-训练后可获得LoRA微调模型，但训练时间长，单卡A800-80G 约15H , 消耗显存大，约 55 ~ 60GB ,自己不想跑可以在我这里下
+终端输入 python train.py 训练后可获得LoRA微调模型，但训练时间长，单卡A800-80G 约15H , 消耗显存大，约 55 ~ 60GB ,自己不想跑可以在我这里下
 **[LoRA微调模型](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT)**
 下载完后解压，放在./lora_legal_qa_adapter路径下
 
@@ -228,7 +226,7 @@ from peft import PeftModel, PeftConfig
 model = PeftModel.from_pretrained(base_model, "./lora_legal_qa_adapter")
 print(model)
 ```
-** 
+```python
 PeftModelForCausalLM(
   (base_model): LoraModel(
     (model): BaichuanForCausalLM(
@@ -299,7 +297,7 @@ PeftModelForCausalLM(
     )
   )
 )
-**
+```
 
 ```python
 # 测试生成效果
@@ -326,7 +324,7 @@ for question in test_questions:
     print(f"回答：{response[len(prompt):]}")
     print("-" * 50)
 ```
-**
+```python
 问题：违章停车会受到什么处罚？
 回答：1、在机动车道停车，罚款50元，不扣分。2、在非机动车道停车，罚款200元，扣2分，并拖走。3、在消防通道或人行走道停车，罚款200元，扣2分，并拖走。4、在人行道停车，罚款200元，扣2分，并拖走。5、停车超过3分钟，罚款50元。6、在禁停路段停车，罚款200元，扣2分，并拖走。7、不按规定地点停放，罚款200元，扣2分，并拖走。8、临时停车，罚款100元，不扣分。9、占用非机动车道，罚款100元，不扣分。10、占用盲道，罚款500元，不扣分。11、占用消防通道，罚款1000元，不扣分。12、占用公交车道，罚款
 --------------------------------------------------
@@ -335,7 +333,7 @@ for question in test_questions:
 --------------------------------------------------
 问题：如何申请专利？
 回答：专利申请分为发明、实用新型和外观设计三种类型，申请专利需要准备相应的材料，具体如下：（1）发明专利申请，请求书、说明书（必要时应当有附图）、权利要求书、摘要及其附图各一式两份；（2）实用新型专利申请，请求书、说明书、摘要及其附图各一式两份；（3）外观设计专利申请，请求书、图片或者照片一式两份。申请外观设计专利的，还可以提交照片。要求保护色彩的，还应当提交彩色图片或者照片一式两份。委托专利代理机构的，应提交委托书。当事人直接办理申请的，应提交其身份证明文件。申请发明专利的，申请文件应当包括：（1）请求书：包括发明名称、申请人和发明人姓名、申请地址、联系方式、联系人、邮编、职务等；（2）说明书：包括独立权利要求、从属权利要求和摘要及其摘要附图。实用新型专利申请文件应当包括：（1）请求
-**
+```
 
 ## 5.构建RAG系统
 需要下载bge-large-zh-v1.5模型
@@ -663,7 +661,7 @@ def main():
 if __name__ == "__main__":
     main()
 ```
-终端输入[python data_chain.py]
+终端输入 python data_chain.py
 
 大致生成如下：
 ```python
@@ -864,11 +862,11 @@ INFO:__main__:模型加载成功
 ```
 
 ## 6.想法与改进
-### 可视化界面
-### 微调后生成的模型对话生硬，可在基础上进行DPO优化
-### QA数据未进行清洗与筛选，如困惑度筛选，去重等
-### 未成功尝试多卡训练，之前的3卡4090没跑成
-### LangChain流程过于简单，需要进行优化
-### 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+### 6.1 可视化界面
+### 6.2 微调后生成的模型对话生硬，可在基础上进行DPO优化
+### 6.3 QA数据未进行清洗与筛选，如困惑度筛选，去重等
+### 6.4 未成功尝试多卡训练，之前的3卡4090没跑成
+### 6.5 LangChain流程过于简单，需要进行优化
+### 6.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
 
 
