@@ -137,9 +137,9 @@ def process_function(examples):
             attention_mask.extend([0] * padding_length)
             label.extend([-100] * padding_length)
     
-    input_ids.append(input_id)
-    attention_masks.append(attention_mask)
-    labels.append(label)
+        input_ids.append(input_id)
+        attention_masks.append(attention_mask)
+        labels.append(label)
 
     return{
         "input_ids"： input_ids,
@@ -876,6 +876,7 @@ INFO:__main__:模型加载成功
 ### 6.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 6.5 LangChain流程过于简单，需要进行优化
 ### 6.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
