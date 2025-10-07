@@ -1,6 +1,4 @@
-
 # 基于BaiChuan2-7B的法律微调大模型+RAG问答
-**可以去我的[GitHub主页](https://github.com/chengyuZou/NLP-LLM/tree/main/Law)看看**
 
 技术栈：
 
@@ -1154,6 +1152,7 @@ INFO:__main__:模型加载成功
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
