@@ -1,137 +1,146 @@
-from datasets import load_dataset
-from transformers import (
-    AutoModelForCausalLM, 
-    AutoTokenizer, 
-    TrainingArguments, 
-    Trainer,
-    DataCollatorForLanguageModeling
-)
-from peft import LoraConfig, get_peft_model, TaskType
-import torch
-OUTPUT_DIR = "./lora_legal_qa_adapter"
-SAVE_STEPS = 500           # 保存步数（示例）
-EVAL_STEPS = 500           # 评估步数，必须与 save 策略/间隔一致以使用 load_best_model_at_end
+# 导入必要的库
+from datasets import load_dataset  # 用于加载和处理数据集
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling  # 导入transformers相关组件
+from peft import LoraConfig, get_peft_model , TaskTpye  # 导入LoRA相关组件，用于参数高效微调
+
+##配置超参数
+OUTPUT_DIR = "./lora_legal_qa_adapter" # 保存适配器的目录路径
+SAVE_STEPS = 500 # 每多少步保存一次模型
+EVAL_STEPS = 500 # 每多少步进行一次评估
+tokenizer_max_length = 1024 # tokenizer的最大长度限制
 
 # 加载tokenizer
-tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/", use_fast=False, trust_remote_code=True)
-tokenizer.pad_token = tokenizer.eos_token
+tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/" , use_fast=False , trust_remote_code=True)
+tkenizer.pad_token = tokenizer.eos_token # 将pad_token设置为eos_token，确保有填充token
 
-# 数据处理函数
 def process_function(examples):
-    input_ids, attention_mask, labels = [], [], []
-    max_length = 1024
+    """
+    数据处理函数，用于将原始数据转换为模型训练所需的格式
+    
+    Args:
+        examples: 包含instruction、input和output字段的批次数据
+        
+    Returns:
+        包含input_ids、attention_masks和labels的字典
+    """
+    input_ids = [] # 存储输入ID序列
+    attention_masks = [] # 存储注意力掩码
+    labels = [] # 存储标签（用于计算loss）
     
     for i in range(len(examples["input"])):
-        # 从instruction与input中生成input_ids
-        inputs = "\n Human: " + examples["instruction"][i].strip() + examples["input"][i].strip() + "\n\nAssistant:"
-        instruction = tokenizer(inputs, add_special_tokens=False)
-        re = examples["output"][i] + tokenizer.eos_token
-        if examples["output"][i] is not None:
-            response = tokenizer(re, add_special_tokens=False)
+        # 构建对话格式的输入文本
+        inputs = f"\nhuman: {examplse["instruction"][i].strip()} {examples["inputs"][i].strip()} \n\nAssistant:"
+        inputs = tokenizer(inputs, add_special_tokens = False) # 对输入进行tokenize，不添加特殊token
+        
+        # 构建回复文本并添加结束标记
+        response = examples["output"][i].strip() + tokenizer.eos_token
+        response = tokenizer(response, add_special_tokens = False) # 对回复进行tokenize
+
+        # 合并输入和回复的token
+        input_id = inputs["input_ids"] + response["input_ids"]
+        attention_mask = input["attention_mask"] + response["attention_mask"]
+        
+        # 创建标签：输入部分用-100忽略，只计算回复部分的loss
+        label = [-100] * len(input_id["input_ids"]) + response["input_ids"]
+
+        # 处理长度超过限制的情况：截断
+        if len(input_ids) > tokenizer_max_length:
+            input_id = input_id[:tokenizer_max_length]
+            attention_mask = attention_mask[:tokenizer_max_length]
+            label = label[:tokenizer_max_length]
         else:
-            continue
-        
-        input_id = instruction["input_ids"] + response["input_ids"]
-        att_mask = instruction["attention_mask"] + response["attention_mask"]
-        label = [-100] * len(instruction["input_ids"]) + response["input_ids"]
-        
-        # 截断到最大长度
-        if len(input_id) > max_length:
-            input_id = input_id[:max_length]
-            att_mask = att_mask[:max_length]
-            label = label[:max_length]
-        elif len(input_id) < max_length:
-            # 填充到相同长度
-            padding_length = max_length - len(input_id)
-            input_id.extend([tokenizer.pad_token_id] * padding_length)
-            att_mask.extend([0] * padding_length)
-            label.extend([-100] * padding_length)
-            
-        input_ids.append(input_id)
-        attention_mask.append(att_mask)
-        labels.append(label)
+            # 处理长度不足的情况：填充
+            padding_length = tokenizer_max_length - len(input_id)
+            input_id.extend([tokenizer.pad_token_id] * padding_length) # 用pad_token_id填充
+            attention_mask.extend([0] * padding_length) # 注意力掩码填充部分设为0
+            label.extend([-100] * padding_length) # 标签填充部分设为-100（忽略）
     
-    return {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
-        "labels": labels
+        # 将处理后的数据添加到批次中
+        input_ids.append(input_id)
+        attention_masks.append(attention_mask)
+        labels.append(label)
+
+    # 返回处理后的批次数据
+    return{
+        "input_ids"： input_ids, # 输入ID序列
+        "attention_masks"： attention_masks, # 注意力掩码
+        "labels"： labels # 训练标签
     }
 
-# 加载数据
-dataset = load_dataset("./SFT/LoRA")
-dataset = dataset['train'].map(process_function, batched=True, remove_columns=dataset['train'].column_names, 
-                              batch_size=4)
+# 加载数据集
+dataset = load_dataset("json", data_files="LoRA_data.jsonl" , split="train")
+# 对数据集应用处理函数，批处理大小为4，移除原始列
+dataset = dataset.map(process_function, batched=True , remove_columns=dataset.column_names , batch_size = 4)
 
 # 划分训练集和验证集
-split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
-train_dataset = split_dataset["train"]
-eval_dataset = split_dataset["test"]
+split_dataset = dataset.train_test_split(test_size=0.1 , seed = 42) # 90%训练，10%验证，固定随机种子
+train_dataset = split_dataset["train"] # 训练集
+eval_dataset = split_dataset["test"] # 验证集
 
-# 创建数据收集器
-data_collator = DataCollatorForLanguageModeling(
-    tokenizer=tokenizer,
-    mlm=False,
-)
+# 创建数据收集器，用于在训练时动态批处理
+data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False) # 不使用掩码语言模型
 
-# 加载模型
+# 加载预训练模型
 model = AutoModelForCausalLM.from_pretrained(
-    "./Baichuan2-7B-Base/", 
-    torch_dtype=torch.float16, 
-    device_map="auto", 
-    trust_remote_code=True
-)
+    "./baichuan-inc/Baichuan2-7B-Base/", # 模型路径
+    trust_remote_code=True, # 信任远程代码（针对自定义模型）
+    torch_dtype = torch.float16, # 使用半精度浮点数以节省内存
+    device_map = "auto") # 自动分配设备（GPU/CPU）
 
-# 设置 LoRA 配置
+# 配置LoRA参数
 lora_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM, 
-    inference_mode=False,
-    r=8, 
-    lora_alpha=32, 
-    lora_dropout=0.1, 
-    target_modules=["o_proj", "gate_proj", "down_proj"]
+    task_type = TaskType.CAUSAL_LM, # 任务类型：因果语言模型
+    inference_mode = False, # 训练模式
+    r = 8, # LoRA秩，控制适配器的大小
+    lora_alpha = 32, # LoRA缩放参数
+    lora_dropout = 0.1, # LoRA层的dropout率
+    target_modules = ["o_proj", "gate_proj", "down_proj"] # 应用LoRA的目标模块
 )
 
-model = get_peft_model(model, lora_config)
+# 将模型转换为LoRA模型
+model = get_peft_model(model , lora_config)
+# 打印可训练参数信息
 model.print_trainable_parameters()
 
-# TrainingArguments：evaluation_strategy 必须和 save_strategy/steps 配合
+# 配置训练参数
 training_args = TrainingArguments(
-    output_dir=OUTPUT_DIR,
-    overwrite_output_dir=True,
-    num_train_epochs=3,
-    per_device_train_batch_size=4,
-    gradient_accumulation_steps=10,
-    learning_rate=1e-5,
-    fp16=True,
-    logging_steps=100,
-    save_steps=SAVE_STEPS,
-    save_strategy="steps",
-    eval_strategy="steps",   # <-- 必须启用 evaluation
-    eval_steps=EVAL_STEPS,        # <-- 与 save_steps/strategy 保持一致或合理设置
-    load_best_model_at_end=True,
-    metric_for_best_model="eval_loss",  # 使用 eval_loss 作为选择指标
-    greater_is_better=False,
-    warmup_steps=100,
-    max_grad_norm=1.0,
-    report_to=None,
-    ddp_find_unused_parameters=False,
+    output_dir = OUTPUT_DIR, # 输出目录
+    overwrite_output_dir = True, # 覆盖输出目录中的内容
+    num_train_epochs = 3, # 训练轮数
+    per_device_train_batch_size = 4, # 每个设备的训练批次大小
+    per_device_eval_batch_size = 10, # 每个设备的评估批次大小
+    learning_rate = 1e-5, # 学习率
+    gradient_accumulation_steps = 10, # 梯度累积步数（模拟更大的批次大小）
+    fp16 = True, # 使用混合精度训练
+    logging_steps = 10, # 每多少步记录一次日志
+    save_steps = SAVE_STEPS, # 保存间隔步数
+    save_strategy = "steps", # 按步数保存策略
+    eval_steps = EVAL_STEPS, # 评估间隔步数
+    eval_strategy = "steps", # 按步数评估策略
+    load_best_model_at_end = True, # 训练结束时加载最佳模型
+    metric_for_best_model = "eval_loss", # 用于选择最佳模型的指标
+    greater_is_better = False, # eval_loss越小越好
+    warmup_steps = 100, # 学习率预热步数
+    max_grad_norm = 1.0, # 梯度裁剪的最大范数
+    report_to = None, # 不向任何平台报告（如wandb等）
+    ddp_find_unused_parameters = False # 在分布式训练中不查找未使用参数
 )
 
-# 创建 Trainer（注意传入 eval_dataset）
+# 创建Trainer实例
 trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
-    data_collator=data_collator,
-    tokenizer=tokenizer,
+    model = model, # 要训练的模型
+    tokenizer = tokenizer, # tokenizer
+    args = training_args, # 训练参数
+    train_dataset = train_dataset, # 训练数据集
+    eval_dataset = eval_dataset, # 验证数据集
+    data_collator = data_collator, # 数据收集器
 )
 
 # 开始训练
 trainer.train()
 
-# 保存模型
+# 保存训练好的模型
 trainer.save_model()
 
-# 保存最终模型
+# 保存训练状态（包括优化器状态等）
 trainer.save_state()
