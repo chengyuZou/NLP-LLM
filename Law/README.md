@@ -119,6 +119,43 @@ tokenizer = AutoTokenizer.from_pretrained(
 print(model)
 print(tokenizer)
 ```
+Model
+```python
+BaichuanForCausalLM(
+  (model): BaichuanModel(
+    (embed_tokens): Embedding(125696, 4096, padding_idx=0)
+    (layers): ModuleList(
+      (0-31): 32 x DecoderLayer(
+        (self_attn): Attention(
+          (W_pack): Linear(in_features=4096, out_features=12288, bias=False)
+          (o_proj): Linear(in_features=4096, out_features=4096, bias=False)
+          (rotary_emb): RotaryEmbedding()
+        )
+        (mlp): MLP(
+          (gate_proj): Linear(in_features=4096, out_features=11008, bias=False)
+          (down_proj): Linear(in_features=11008, out_features=4096, bias=False)
+          (up_proj): Linear(in_features=4096, out_features=11008, bias=False)
+          (act_fn): SiLU()
+        )
+        (input_layernorm): RMSNorm()
+        (post_attention_layernorm): RMSNorm()
+      )
+    )
+    (norm): RMSNorm()
+  )
+  (lm_head): NormHead()
+)
+```
+
+Tokenizer
+```python
+BaichuanTokenizer(name_or_path='./Baichuan2-7B-Base/', vocab_size=125696, model_max_length=4096, is_fast=False, padding_side='right', truncation_side='right', special_tokens={'bos_token': '<s>', 'eos_token': '</s>', 'unk_token': '<unk>', 'pad_token': '<unk>'}, clean_up_tokenization_spaces=False, added_tokens_decoder={
+	0: AddedToken("<unk>", rstrip=False, lstrip=False, single_word=False, normalized=True, special=True),
+	1: AddedToken("<s>", rstrip=False, lstrip=False, single_word=False, normalized=True, special=True),
+	2: AddedToken("</s>", rstrip=False, lstrip=False, single_word=False, normalized=True, special=True),
+}
+)
+```
 
 ## 3. 训练模型
 使用Trainer训练
@@ -1086,6 +1123,7 @@ print("\n" + "=" * 30)
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
