@@ -1,5 +1,9 @@
 # NLP-LLM
-##THUNews-classification：中文文本分类＋可视化演示工程项目
+[基于BaiChuan2-7B-chat的法律微调模型](https://github.com/chengyuZou/NLP-LLM/tree/main/Law)
+[THUNews-classification：中文文本分类＋可视化演示工程项目]()
+
+
+
 
 ## 1	- 下载 THUCNews ，获取子集（5 类×2000 条）
 ### - 用 pandas / jsonlines 做数据清洗	数据清洗（缺失 / 标签平衡）
