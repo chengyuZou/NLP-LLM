@@ -311,7 +311,194 @@ trainer.save_state()
 **[LoRA微调模型](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT)**
 下载完后解压，放在./lora_legal_qa_adapter路径下
 
-## 4. 模型推理
+
+## 4.测评部分
+指标为困惑度，分别对Base和LoRA模型测评，并计算改进
+
+具体可看**[CSDN博客-困惑度](https://blog.csdn.net/u013172930/article/details/145428394?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522191b3b52ecfe8257154d1774e06333b3%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=191b3b52ecfe8257154d1774e06333b3&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_click~default-1-145428394-null-null.142^v102^pc_search_result_base1&utm_term=%E5%9B%B0%E6%83%91%E5%BA%A6&spm=1018.2226.3001.4187)**
+
+```python
+from evaluate import load
+from transformers import pipeline
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+from tqdm import tqdm
+import math
+from peft import PeftModel
+MAX_LENGTH = 1024
+
+def calculate_perplexity_conservative(dataset, batch_size , device , model , tokenizer, optimized=False):
+    """
+    更保守的困惑度计算方法
+    """
+    model_name = "Base" if not optimized else "LoRA"
+    print(model)
+    dataset_list = [dataset[i] for i in range(len(dataset))]
+    
+    total_loss = 0
+    total_tokens = 0
+    
+    print(f"开始计算 {len(dataset_list)} 条文本的困惑度...")
+    
+    for i in tqdm(range(0, 25, batch_size)):
+        batch_examples = dataset_list[i:i + batch_size]
+        input_ids = []
+        attention_masks = []
+        labels = []
+        
+        try:
+            texts = []
+            for example in batch_examples:
+         
+                prompt = f"\n Human: {example["instruction"].strip()} {example["input"].strip()} \n\n Assistant:"
+                prompt = tokenizer(prompt , add_special_tokens = False)
+                response = example["output"].strip() + tokenizer.eos_token
+                response = tokenizer(response , add_special_tokens = False)
+                input_id = prompt["input_ids"] + response["input_ids"]
+                attention_mask = prompt["attention_mask"] + response["attention_mask"]
+                label = [-100] * len(prompt["input_ids"]) + response["input_ids"]
+    
+                if len(input_id) > MAX_LENGTH:
+                    input_id = input_id[:MAX_LENGTH]
+                    attention_mask = attention_mask[:MAX_LENGTH]
+                    label = label[:MAX_LENGTH]
+                else:
+                    padding_length = MAX_LENGTH - len(input_id)
+                    input_id.extend([tokenizer.pad_token_id] * padding_length)
+                    attention_mask.extend([0] * padding_length)
+                    label.extend([-100] * padding_length)
+                input_ids.append(input_id)
+                attention_masks.append(attention_mask)
+                labels.append(label)
+    
+            # 转换为张量
+            input_ids = torch.tensor(input_ids, dtype=torch.long)
+            attention_masks = torch.tensor(attention_masks, dtype=torch.long)
+            labels = torch.tensor(labels, dtype=torch.long)
+            inputs = {
+                        "input_ids": input_ids,
+                        "attention_mask": attention_masks,
+                        "labels": labels
+                    }
+            
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = model(**inputs)
+                loss = outputs.loss
+                
+                if loss is not None and not torch.isnan(loss):
+                    # 累计总loss和总token数
+                    batch_tokens = inputs["attention_mask"].sum().item()
+                    total_loss += loss.item() * batch_tokens
+                    total_tokens += batch_tokens
+                if i % 10 == 0:
+                    avg_loss = total_loss / total_tokens
+                    avg_perplexity = math.exp(avg_loss)
+                    print(f"{model_name}模型到{i}步的困惑值")
+                    results = {
+                        "model_name": model_name,
+                        "mean_perplexity": avg_perplexity,
+                        "mean_loss": avg_loss,
+                        "total_tokens": total_tokens,
+                        "num_samples": len(dataset)
+                    }
+                    print(results)
+                    print("=========\n")
+                    
+                    
+        except Exception as e:
+            print(f"批处理 {i//batch_size + 1} 计算失败: {e}")
+            continue
+    
+    if total_tokens == 0:
+        print("所有批处理的困惑度计算失败")
+        return {"mean_perplexity": float('nan'), "mean_loss": float('nan')}
+    
+    # 计算整体平均loss和困惑度
+    avg_loss = total_loss / total_tokens
+    avg_perplexity = math.exp(avg_loss)
+    
+    results = {
+        "model_name": model_name,
+        "mean_perplexity": avg_perplexity,
+        "mean_loss": avg_loss,
+        "total_tokens": total_tokens,
+        "num_samples": len(dataset)
+    }
+    print(f"{model_name}总结果：")
+    print(results)
+    
+    return results
+
+dataset = load_dataset("json", data_files="/root/autodl-tmp/SFT/LoRA/LoRA_data.jsonl", split="train")
+# 划分训练集和验证集
+split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
+train_dataset = split_dataset["train"]
+eval_dataset = split_dataset["test"]
+tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/", use_fast=False , trust_remote_code=True)
+base_model = AutoModelForCausalLM.from_pretrained("./Baichuan2-7B-Base/" , torch_dtype = torch.float16 , device_map = "auto" ,  trust_remote_code=True)
+model = PeftModel.from_pretrained(base_model, "./lora_legal_qa_adapter")
+baseline_results = calculate_perplexity_conservative(eval_dataset, batch_size = 2 , device= "cuda" if torch.cuda.is_available() else "cpu" , model = base_model , tokenizer = tokenizer , optimized = False)
+optimized_results = calculate_perplexity_conservative(eval_dataset, batch_size = 2 , device= "cuda" if torch.cuda.is_available() else "cpu" , model = model , tokenizer = tokenizer , optimized = True)
+
+improvement = {
+    "baseline": baseline_results,
+    "optimized": optimized_results,
+    "improvement": {
+        "perplexity_reduction": baseline_results["mean_perplexity"] - optimized_results["mean_perplexity"],
+        "perplexity_improvement_pct": (
+            (baseline_results["mean_perplexity"] - optimized_results["mean_perplexity"]) / 
+            baseline_results["mean_perplexity"] * 100
+        ) if baseline_results["mean_perplexity"] > 0 else 0,
+        "loss_reduction": baseline_results["mean_loss"] - optimized_results["mean_loss"],
+        "loss_improvement_pct": (
+            (baseline_results["mean_loss"] - optimized_results["mean_loss"]) / 
+            baseline_results["mean_loss"] * 100
+        ) if baseline_results["mean_loss"] > 0 else 0
+    }
+}
+for key, value in improvement.items():
+    if isinstance(value, dict):
+        print(f"{key}:")
+        for k, v in value.items():
+            if isinstance(v, float):
+                print(f"  {k}: {v:.4f}")
+            else:
+                print(f"  {k}: {v}")
+    else:
+        if isinstance(value, float):
+            print(f"{key}: {value:.4f}")
+        else:
+            print(f"{key}: {value}")
+print("\n" + "=" * 30)
+```
+
+依旧，终端输入： python eval.py
+
+最后结果为
+```log
+2025-10-07 13:25:24,299 - INFO - baseline:
+2025-10-07 13:25:24,300 - INFO -   model_name: Base
+2025-10-07 13:25:24,300 - INFO -   mean_perplexity: 4.4633
+2025-10-07 13:25:24,300 - INFO -   mean_loss: 1.4959
+2025-10-07 13:25:24,300 - INFO -   total_tokens: 1292113
+2025-10-07 13:25:24,300 - INFO -   num_samples: 7970
+2025-10-07 13:25:24,301 - INFO - optimized:
+2025-10-07 13:25:24,301 - INFO -   model_name: LoRA
+2025-10-07 13:25:24,301 - INFO -   mean_perplexity: 3.7871
+2025-10-07 13:25:24,301 - INFO -   mean_loss: 1.3316
+2025-10-07 13:25:24,302 - INFO -   total_tokens: 1292113
+2025-10-07 13:25:24,302 - INFO -   num_samples: 7970
+2025-10-07 13:25:24,302 - INFO - improvement:
+2025-10-07 13:25:24,302 - INFO -   perplexity_reduction: 0.6762
+2025-10-07 13:25:24,302 - INFO -   perplexity_improvement_pct: 15.1501
+2025-10-07 13:25:24,303 - INFO -   loss_reduction: 0.1643
+2025-10-07 13:25:24,303 - INFO -   loss_improvement_pct: 10.9826
+```
+
+## 5. 模型推理
 ```python
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -431,7 +618,7 @@ for question in test_questions:
 回答：专利申请分为发明、实用新型和外观设计三种类型，申请专利需要准备相应的材料，具体如下：（1）发明专利申请，请求书、说明书（必要时应当有附图）、权利要求书、摘要及其附图各一式两份；（2）实用新型专利申请，请求书、说明书、摘要及其附图各一式两份；（3）外观设计专利申请，请求书、图片或者照片一式两份。申请外观设计专利的，还可以提交照片。要求保护色彩的，还应当提交彩色图片或者照片一式两份。委托专利代理机构的，应提交委托书。当事人直接办理申请的，应提交其身份证明文件。申请发明专利的，申请文件应当包括：（1）请求书：包括发明名称、申请人和发明人姓名、申请地址、联系方式、联系人、邮编、职务等；（2）说明书：包括独立权利要求、从属权利要求和摘要及其摘要附图。实用新型专利申请文件应当包括：（1）请求
 ```
 
-## 5.构建RAG系统
+## 6.构建RAG系统
 需要下载bge-large-zh-v1.5模型
 
 ```python
@@ -957,191 +1144,6 @@ INFO:__main__:模型加载成功
 答案：《劳动合同法》对劳动合同必备条款的规定包括这样几个方面：?用人单位的基本情况：如名称、住所和法定代表人或者主要负责人?劳动者的主要情况：如姓名、住址、居民身份证或者其他有效身份证件号
 ```
 
-## 6.测评部分
-指标为困惑度，分别对Base和LoRA模型测评，并计算改进
-
-具体可看**[CSDN博客-困惑度](https://blog.csdn.net/u013172930/article/details/145428394?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522191b3b52ecfe8257154d1774e06333b3%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=191b3b52ecfe8257154d1774e06333b3&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_click~default-1-145428394-null-null.142^v102^pc_search_result_base1&utm_term=%E5%9B%B0%E6%83%91%E5%BA%A6&spm=1018.2226.3001.4187)**
-
-```python
-from evaluate import load
-from transformers import pipeline
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-from tqdm import tqdm
-import math
-from peft import PeftModel
-MAX_LENGTH = 1024
-
-def calculate_perplexity_conservative(dataset, batch_size , device , model , tokenizer, optimized=False):
-    """
-    更保守的困惑度计算方法
-    """
-    model_name = "Base" if not optimized else "LoRA"
-    print(model)
-    dataset_list = [dataset[i] for i in range(len(dataset))]
-    
-    total_loss = 0
-    total_tokens = 0
-    
-    print(f"开始计算 {len(dataset_list)} 条文本的困惑度...")
-    
-    for i in tqdm(range(0, 25, batch_size)):
-        batch_examples = dataset_list[i:i + batch_size]
-        input_ids = []
-        attention_masks = []
-        labels = []
-        
-        try:
-            texts = []
-            for example in batch_examples:
-         
-                prompt = f"\n Human: {example["instruction"].strip()} {example["input"].strip()} \n\n Assistant:"
-                prompt = tokenizer(prompt , add_special_tokens = False)
-                response = example["output"].strip() + tokenizer.eos_token
-                response = tokenizer(response , add_special_tokens = False)
-                input_id = prompt["input_ids"] + response["input_ids"]
-                attention_mask = prompt["attention_mask"] + response["attention_mask"]
-                label = [-100] * len(prompt["input_ids"]) + response["input_ids"]
-    
-                if len(input_id) > MAX_LENGTH:
-                    input_id = input_id[:MAX_LENGTH]
-                    attention_mask = attention_mask[:MAX_LENGTH]
-                    label = label[:MAX_LENGTH]
-                else:
-                    padding_length = MAX_LENGTH - len(input_id)
-                    input_id.extend([tokenizer.pad_token_id] * padding_length)
-                    attention_mask.extend([0] * padding_length)
-                    label.extend([-100] * padding_length)
-                input_ids.append(input_id)
-                attention_masks.append(attention_mask)
-                labels.append(label)
-    
-            # 转换为张量
-            input_ids = torch.tensor(input_ids, dtype=torch.long)
-            attention_masks = torch.tensor(attention_masks, dtype=torch.long)
-            labels = torch.tensor(labels, dtype=torch.long)
-            inputs = {
-                        "input_ids": input_ids,
-                        "attention_mask": attention_masks,
-                        "labels": labels
-                    }
-            
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                loss = outputs.loss
-                
-                if loss is not None and not torch.isnan(loss):
-                    # 累计总loss和总token数
-                    batch_tokens = inputs["attention_mask"].sum().item()
-                    total_loss += loss.item() * batch_tokens
-                    total_tokens += batch_tokens
-                if i % 10 == 0:
-                    avg_loss = total_loss / total_tokens
-                    avg_perplexity = math.exp(avg_loss)
-                    print(f"{model_name}模型到{i}步的困惑值")
-                    results = {
-                        "model_name": model_name,
-                        "mean_perplexity": avg_perplexity,
-                        "mean_loss": avg_loss,
-                        "total_tokens": total_tokens,
-                        "num_samples": len(dataset)
-                    }
-                    print(results)
-                    print("=========\n")
-                    
-                    
-        except Exception as e:
-            print(f"批处理 {i//batch_size + 1} 计算失败: {e}")
-            continue
-    
-    if total_tokens == 0:
-        print("所有批处理的困惑度计算失败")
-        return {"mean_perplexity": float('nan'), "mean_loss": float('nan')}
-    
-    # 计算整体平均loss和困惑度
-    avg_loss = total_loss / total_tokens
-    avg_perplexity = math.exp(avg_loss)
-    
-    results = {
-        "model_name": model_name,
-        "mean_perplexity": avg_perplexity,
-        "mean_loss": avg_loss,
-        "total_tokens": total_tokens,
-        "num_samples": len(dataset)
-    }
-    print(f"{model_name}总结果：")
-    print(results)
-    
-    return results
-
-dataset = load_dataset("json", data_files="/root/autodl-tmp/SFT/LoRA/LoRA_data.jsonl", split="train")
-# 划分训练集和验证集
-split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
-train_dataset = split_dataset["train"]
-eval_dataset = split_dataset["test"]
-tokenizer = AutoTokenizer.from_pretrained("./Baichuan2-7B-Base/", use_fast=False , trust_remote_code=True)
-base_model = AutoModelForCausalLM.from_pretrained("./Baichuan2-7B-Base/" , torch_dtype = torch.float16 , device_map = "auto" ,  trust_remote_code=True)
-model = PeftModel.from_pretrained(base_model, "./lora_legal_qa_adapter")
-baseline_results = calculate_perplexity_conservative(eval_dataset, batch_size = 2 , device= "cuda" if torch.cuda.is_available() else "cpu" , model = base_model , tokenizer = tokenizer , optimized = False)
-optimized_results = calculate_perplexity_conservative(eval_dataset, batch_size = 2 , device= "cuda" if torch.cuda.is_available() else "cpu" , model = model , tokenizer = tokenizer , optimized = True)
-
-improvement = {
-    "baseline": baseline_results,
-    "optimized": optimized_results,
-    "improvement": {
-        "perplexity_reduction": baseline_results["mean_perplexity"] - optimized_results["mean_perplexity"],
-        "perplexity_improvement_pct": (
-            (baseline_results["mean_perplexity"] - optimized_results["mean_perplexity"]) / 
-            baseline_results["mean_perplexity"] * 100
-        ) if baseline_results["mean_perplexity"] > 0 else 0,
-        "loss_reduction": baseline_results["mean_loss"] - optimized_results["mean_loss"],
-        "loss_improvement_pct": (
-            (baseline_results["mean_loss"] - optimized_results["mean_loss"]) / 
-            baseline_results["mean_loss"] * 100
-        ) if baseline_results["mean_loss"] > 0 else 0
-    }
-}
-for key, value in improvement.items():
-    if isinstance(value, dict):
-        print(f"{key}:")
-        for k, v in value.items():
-            if isinstance(v, float):
-                print(f"  {k}: {v:.4f}")
-            else:
-                print(f"  {k}: {v}")
-    else:
-        if isinstance(value, float):
-            print(f"{key}: {value:.4f}")
-        else:
-            print(f"{key}: {value}")
-print("\n" + "=" * 30)
-```
-
-依旧，终端输入： python eval.py
-
-最后结果为
-```log
-2025-10-07 13:25:24,299 - INFO - baseline:
-2025-10-07 13:25:24,300 - INFO -   model_name: Base
-2025-10-07 13:25:24,300 - INFO -   mean_perplexity: 4.4633
-2025-10-07 13:25:24,300 - INFO -   mean_loss: 1.4959
-2025-10-07 13:25:24,300 - INFO -   total_tokens: 1292113
-2025-10-07 13:25:24,300 - INFO -   num_samples: 7970
-2025-10-07 13:25:24,301 - INFO - optimized:
-2025-10-07 13:25:24,301 - INFO -   model_name: LoRA
-2025-10-07 13:25:24,301 - INFO -   mean_perplexity: 3.7871
-2025-10-07 13:25:24,301 - INFO -   mean_loss: 1.3316
-2025-10-07 13:25:24,302 - INFO -   total_tokens: 1292113
-2025-10-07 13:25:24,302 - INFO -   num_samples: 7970
-2025-10-07 13:25:24,302 - INFO - improvement:
-2025-10-07 13:25:24,302 - INFO -   perplexity_reduction: 0.6762
-2025-10-07 13:25:24,302 - INFO -   perplexity_improvement_pct: 15.1501
-2025-10-07 13:25:24,303 - INFO -   loss_reduction: 0.1643
-2025-10-07 13:25:24,303 - INFO -   loss_improvement_pct: 10.9826
-```
 
 ## 7.想法与改进
 ### 7.1 可视化界面
@@ -1150,6 +1152,7 @@ print("\n" + "=" * 30)
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
