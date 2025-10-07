@@ -18,7 +18,7 @@
 
 ## 1.数据集
 所选数据集为
-**[法律QA](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT), 其中取[DISC-Law-SFT-Pair-QA-released.jsonl]这一项**
+**[法律QA](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT), 其中取 DISC-Law-SFT-Pair-QA-released.jsonl 这一项**
 下载完后放在当前文件夹后解压
 
 ### 1.1 AutoDL平台下载HF数据
@@ -1152,6 +1152,7 @@ INFO:__main__:模型加载成功
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
