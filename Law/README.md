@@ -58,12 +58,13 @@ print(data[0])
 from datasets import load_dataset
 dataset = load_dataset("json", data_files="DISC-Law-SFT-Pair-QA-released.jsonl" , split="train")
 print(dataset)
-"""
+```
+格式
+```python
 Dataset({
     features: ['id', 'input', 'output'],
     num_rows: 246450
 })
-"""
 ```
 
 这一段代码需要你运行，在终端输入 python Data_Process.py 构建Prompt训练数据
@@ -84,6 +85,13 @@ with open("DISC-Law-SFT-Pair-QA-released.jsonl" , 'r' , encoding='utf-8') as inp
 data = load_dataset("json", data_files="LoRA_data.jsonl" , split="train")
 data = data['train']
 print(data[0])
+```
+
+```json
+{'instruction': '你是一名专业律师，请根据中国法律回答以下问题。',
+ 'input': '违章停车与违法停车是否有区别？',
+ 'output': '对违反道路交通安全法律、法规关于机动车停放、临时停车规定的，可以指出违法行为，并予以口头警告，令其立即驶离。机动车驾驶人不在现场或者虽在现场但拒绝立即驶离，妨碍其他车辆、行人通行的处二十元以上二百元以下罚款。现在人们大多是称作违法停车，因此在法律责任上也会更多一些，不要以为违反交通规章制度问题不大，不要认为违法停车是罚款而已。'}
+
 ```
 
 ## 2. Base模型与Tokenizer
@@ -1078,10 +1086,6 @@ print("\n" + "=" * 30)
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
-
-
-
-
 
 
 
