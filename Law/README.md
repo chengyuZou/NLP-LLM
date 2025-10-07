@@ -1,4 +1,6 @@
+
 # 基于BaiChuan2-7B的法律微调大模型+RAG问答
+**可以去我的[GitHub主页](https://github.com/chengyuZou/NLP-LLM/tree/main/Law)看看**
 
 技术栈：
 
@@ -315,7 +317,7 @@ trainer.save_state()
 ## 4.测评部分
 指标为困惑度，分别对Base和LoRA模型测评，并计算改进
 
-具体可看**[CSDN博客-困惑度](https://blog.csdn.net/u013172930/article/details/145428394?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522191b3b52ecfe8257154d1774e06333b3%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=191b3b52ecfe8257154d1774e06333b3&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_click~default-1-145428394-null-null.142^v102^pc_search_result_base1&utm_term=%E5%9B%B0%E6%83%91%E5%BA%A6&spm=1018.2226.3001.4187)**
+**具体可看[CSDN博客-困惑度](https://blog.csdn.net/u013172930/article/details/145428394?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522191b3b52ecfe8257154d1774e06333b3%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=191b3b52ecfe8257154d1774e06333b3&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_click~default-1-145428394-null-null.142^v102^pc_search_result_base1&utm_term=%E5%9B%B0%E6%83%91%E5%BA%A6&spm=1018.2226.3001.4187)**
 
 ```python
 from evaluate import load
@@ -1152,6 +1154,7 @@ INFO:__main__:模型加载成功
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
