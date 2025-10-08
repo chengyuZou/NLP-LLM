@@ -341,7 +341,7 @@ def calculate_perplexity_conservative(dataset, batch_size , device , model , tok
     
     print(f"开始计算 {len(dataset_list)} 条文本的困惑度...")
     
-    for i in tqdm(range(0, 25, batch_size)):
+    for i in tqdm(range(0, len(dataset), batch_size)):
         batch_examples = dataset_list[i:i + batch_size]
         input_ids = []
         attention_masks = []
@@ -1152,6 +1152,7 @@ INFO:__main__:模型加载成功
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
 ### 7.5 LangChain流程过于简单，需要进行优化
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
+
 
 
 
