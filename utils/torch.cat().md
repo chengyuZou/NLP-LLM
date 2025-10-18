@@ -7,7 +7,7 @@ torch.cat 接受一个张量列表，并沿着某个维度连接它们。这个�
 官网：**[torch.cat()](https://docs.pytorch.org/docs/stable/generated/torch.cat.html#torch.cat)**，函数定义及参数说明如下图所示
 <img width="1179" height="712" alt="image" src="https://github.com/user-attachments/assets/0b786a94-15c4-4e16-b34c-c2796dfd2eda" /> 
 
-##代码举例  
+## 代码举例  
 在我看来，对哪个维度进行cat，就是对哪个维度的值相加 , 但前提是其他维度的值相同
 ### 1.输入两个二维张量（dim=0）：dim=0对行进行拼接
 ```python
@@ -85,7 +85,7 @@ a,b,c
 c.shape = [3 , 3 , 4] = [1 + 2 , 3 , 4] dim = 1 ， 2 的值相同，分别都为 3 ， 4
 ```
 
-##参考文献
+## 参考文献
 ### **[Pytorch中torch.cat()函数解析](https://blog.csdn.net/flyingluohaipeng/article/details/125038212?ops_request_misc=%257B%2522request%255Fid%2522%253A%25221904fb49d28573d5292f961da863ab2a%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=1904fb49d28573d5292f961da863ab2a&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-125038212-null-null.142^v102^pc_search_result_base1&utm_term=torch.cat&spm=1018.2226.3001.4187)**
 
 
