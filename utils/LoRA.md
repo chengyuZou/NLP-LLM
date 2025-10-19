@@ -283,12 +283,9 @@ class LoraConfig:
 这一部分确定了LoRA的各种参数
 
 #### 3.2.2 apply_lora
-该函数的功能是：
-
-遍历整个模型，找到所有需要替换的 nn.Linear 层。
-
-用 LoRALinear 层（LoRA 适配器）替换原有的 Linear 层。
-
+该函数的功能是：  
+遍历整个模型，找到所有需要替换的 nn.Linear 层。  
+用 LoRALinear 层（LoRA 适配器）替换原有的 Linear 层。  
 如果配置中指定了 inference_mode，则进行权重合并，优化推理时的计算。
 
 详细解析
@@ -300,10 +297,8 @@ for name, module in model.named_modules():
         candidates.append((name, module))
 ```
 
-通过 model.named_modules() 遍历模型的所有子模块。named_modules() 会返回模型中每个子模块的名称 name 和模块对象 module。
-
-isinstance(module, nn.Linear)：过滤出所有 nn.Linear 层，表示只关注线性层（全连接层）。
-
+通过 model.named_modules() 遍历模型的所有子模块。named_modules() 会返回模型中每个子模块的名称 name 和模块对象 module。  
+isinstance(module, nn.Linear)：过滤出所有 nn.Linear 层，表示只关注线性层（全连接层）。  
 _should_replace(name, config.target_modules) 是一个函数（未提供实现），用于判断模块名称是否符合配置中指定的目标模块 target_modules（即名字中包含特定子串的模块），如果符合则把这个模块记录为候选。
 
 2) 替换为 LoRALinear 层
@@ -324,47 +319,36 @@ for name, module in candidates:
 
 last = parts[-1] 是模块的最终名称（即模块名），例如 weight、bias 等。
 
-# 创建 LoRA 包装器
+##### 创建 LoRA 包装器
 
 LoRALinear 是用来包装原始 Linear 层的 LoRA 层，它会使用原始 Linear 层的权重和偏置，但会在其基础上引入低秩适配（LoRA）。
 
 参数：
-
+```python
 r=config.r：低秩矩阵的秩，即 LoRA 的维度。
 
 alpha=config.lora_alpha：LoRA 的缩放因子，影响训练过程中的调整强度。
 
 dropout=config.lora_dropout：用于 LoRA 适配的 dropout。
+```
 
 3) 替换模块
-# 设置父模块的属性为 LoRA 包装层
-setattr(parent, last, lora_layer)
-
-
+##### 设置父模块的属性为 LoRA 包装层  
 setattr(parent, last, lora_layer)：将 lora_layer 设置为父模块的一个属性，这相当于用 LoRA 层替换了原来的 Linear 层。
 
 4) 如果是推理模式，合并 LoRA 权重
+```python
 if config.inference_mode:
     lora_layer.merge()
+```
 
-
-如果配置中的 inference_mode=True，意味着用户在推理过程中不希望继续使用 LoRA 层的额外计算，而是希望将 LoRA 适配的权重合并到原始的 Linear 权重中。
-
-lora_layer.merge()：合并 LoRA 层的适配权重到原始权重，避免推理时的额外计算开销。
-
-最后，返回修改后的模型：
+如果配置中的 inference_mode=True，意味着用户在推理过程中不希望继续使用 LoRA 层的额外计算，而是希望将 LoRA 适配的权重合并到原始的 Linear 权重中。  
+lora_layer.merge()：合并 LoRA 层的适配权重到原始权重，避免推理时的额外计算开销。  
+最后，返回修改后的模型：  
 return model
+ 
+这段代码的核心任务是：  
+遍历并找到符合条件的 nn.Linear 层。  
+将它们替换为 LoRALinear 层，该层可以进行低秩适配。  
+如果是推理模式，则自动合并 LoRA 层的权重，避免推理时计算开销。  
 
-总结
-
-这段代码的核心任务是：
-
-遍历并找到符合条件的 nn.Linear 层。
-
-将它们替换为 LoRALinear 层，该层可以进行低秩适配。
-
-如果是推理模式，则自动合并 LoRA 层的权重，避免推理时计算开销。
-
-代码示例解释：
-
-假设你的模型中有多个 Linear 层，通过 apply_lora 函数，你可以将这些层替换成 LoRALinear 层，使得模型支持 LoRA 技术，便于在大模型基础上进行微调。
