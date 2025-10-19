@@ -1,5 +1,5 @@
 ## 1.LoRA算法思想
-论文地址**[https://arxiv.org/pdf/2106.09685](https://arxiv.org/pdf/2106.09685)**
+**[论文地址](https://arxiv.org/pdf/2106.09685)**  
 模型是过参数化的，它们有更小的内在维度，模型主要依赖于这个低的内在维度（low intrinsic dimension）去做任务适配。  
 假设模型在适配任务时参数的改变量是低秩的，由此引出低秩自适应方法lora，通过低秩分解来模拟参数的改变量，从而以极小的参数量来实现大模型的间接训练。
 
@@ -7,7 +7,7 @@
 LoRA的实现方式是在基础模型的线性变换模块（全连接、Embedding、卷积）旁边增加一个旁路，这个旁路是由两个小矩阵做内积得来的，两个小矩阵的中间维度，就是秩！！  
 通过低秩分解（先降维再升维）来模拟参数的更新量。  
 下面是LoRA的公式：
-<img width="338" height="21" alt="image" src="https://github.com/user-attachments/assets/6dee4bb2-44e9-466f-82b2-67b8ed4820c1" />
+<img width="338" height="21" alt="image" src="https://github.com/user-attachments/assets/6dee4bb2-44e9-466f-82b2-67b8ed4820c1" />  
 上面公式中x是这一层的输入，h是这一层的输出，W_0是基础模型的权重参数；A和B是两个小矩阵，A的输入和B的输出形状跟W_0一样，A的输出和B的输入一样，称为秩。  
 秩一般很小，微调的所有“新知识”都保存在A和B里面；\alpha /r是一个缩放系数，这个数越大，LoRA权重的影响就越大。
 
