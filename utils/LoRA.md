@@ -352,3 +352,5 @@ return model
 将它们替换为 LoRALinear 层，该层可以进行低秩适配。  
 如果是推理模式，则自动合并 LoRA 层的权重，避免推理时计算开销。  
 
+## 4.参考文献
+**[如何训练一个大模型：LoRA篇](https://blog.csdn.net/xian0710830114/article/details/138710952?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522471c2f24b4d8902bc31ef4d82aa9cc3c%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=471c2f24b4d8902bc31ef4d82aa9cc3c&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-138710952-null-null.142^v102^pc_search_result_base1&utm_term=LoRA&spm=1018.2226.3001.4187)**
