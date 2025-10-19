@@ -10,5 +10,9 @@ LoRA的实现方式是在基础模型的线性变换模块（全连接、Embeddi
 <img width="338" height="21" alt="image" src="https://github.com/user-attachments/assets/6dee4bb2-44e9-466f-82b2-67b8ed4820c1" /> 
 
 上面公式中x是这一层的输入，h是这一层的输出，W_0是基础模型的权重参数；A和B是两个小矩阵，A的输入和B的输出形状跟W_0一样，A的输出和B的输入一样，称为秩。  
-秩一般很小，微调的所有“新知识”都保存在A和B里面；\alpha /r是一个缩放系数，这个数越大，LoRA权重的影响就越大。
+秩一般很小，微调的所有“新知识”都保存在A和B里面；\alpha /r是一个缩放系数，这个数越大，LoRA权重的影响就越大。  
+
+LoRA流程图  
+<img width="397" height="361" alt="image" src="https://github.com/user-attachments/assets/782335dd-7de2-4822-ac44-d1e7eea09197" />  
+
 
