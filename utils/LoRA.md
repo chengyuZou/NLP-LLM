@@ -15,4 +15,67 @@ LoRA的实现方式是在基础模型的线性变换模块（全连接、Embeddi
 LoRA流程图  
 <img width="397" height="361" alt="image" src="https://github.com/user-attachments/assets/782335dd-7de2-4822-ac44-d1e7eea09197" />  
 
+## 3.代码实现
+### 3.1 LoRA代码主要靠peft库里的LoraConfig, TaskType, get_peft_model函数  
+下列给出实例：
+
+```python
+from peft import LoraConfig, TaskType, get_peft_model
+from transformers import AutoModel, HfArgumentParser, TrainingArguments
+ 
+from finetune import CastOutputToFloat, FinetuneArguments
+ 
+ 
+def count_params(model):
+    for name, param in model.named_parameters():
+        print(name, param.shape)
+ 
+ 
+ 
+def make_peft_model():
+    # 初始化原模型
+    model = AutoModel.from_pretrained(
+        "THUDM/chatglm-6b", load_in_8bit=False, trust_remote_code=True, device_map="auto", local_files_only=True
+    ).float()
+    
+ 
+    # 给原模型施加LoRA
+    peft_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        inference_mode=True,
+        r=8,
+        lora_alpha=32,
+        lora_dropout=0.1,
+        target_modules=['query_key_value'],
+    )
+    model = get_peft_model(model, peft_config).float()
+    count_params(model)
+ 
+ 
+ 
+if __name__ == '__main__':
+    make_peft_model()
+```
+
+输出：  
+```python
+base_model.model.transformer.word_embeddings.weight torch.Size([130528, 4096])
+base_model.model.transformer.layers.0.input_layernorm.weight torch.Size([4096])
+base_model.model.transformer.layers.0.input_layernorm.bias torch.Size([4096])
+base_model.model.transformer.layers.0.attention.query_key_value.base_layer.weight torch.Size([12288, 4096])
+base_model.model.transformer.layers.0.attention.query_key_value.base_layer.bias torch.Size([12288])
+base_model.model.transformer.layers.0.attention.query_key_value.lora_A.default.weight torch.Size([8, 4096])
+base_model.model.transformer.layers.0.attention.query_key_value.lora_B.default.weight torch.Size([12288, 8])
+base_model.model.transformer.layers.0.attention.dense.weight torch.Size([4096, 4096])
+base_model.model.transformer.layers.0.attention.dense.bias torch.Size([4096])
+base_model.model.transformer.layers.0.post_attention_layernorm.weight torch.Size([4096])
+base_model.model.transformer.layers.0.post_attention_layernorm.bias torch.Size([4096])
+base_model.model.transformer.layers.0.mlp.dense_h_to_4h.weight torch.Size([16384, 4096])
+base_model.model.transformer.layers.0.mlp.dense_h_to_4h.bias torch.Size([16384])
+base_model.model.transformer.layers.0.mlp.dense_4h_to_h.weight torch.Size([4096, 16384])
+base_model.model.transformer.layers.0.mlp.dense_4h_to_h.bias torch.Size([4096])
+base_model.model.transformer.layers.1.input_layernorm.weight torch.Size([4096])
+base_model.model.transformer.layers.1.input_layernorm.bias torch.Size([4096])
+......
+```
 
