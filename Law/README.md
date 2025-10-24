@@ -1220,7 +1220,7 @@ INFO:__main__:模型加载成功
 
 ## 优化
 ### 2025.10.24
-一轮LoRA训练后，回答还是不够好，进行第二次LoRA训练，所选数据集为**[法律QA](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT), 其中取 DISC-Law-SFT-Triplet-QA-released.jsonl 这一项**
+一轮LoRA训练后，回答还是不够好，进行第二次LoRA训练，所选数据集为**[法律QA](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT)**, 其中取 DISC-Law-SFT-Triplet-QA-released.jsonl 这一项
 下载完后放在当前文件夹后解压
 
 ```python
@@ -1692,9 +1692,501 @@ if __name__ == "__main__":
 问题：某公司的员工发现自己的工资和劳动合同不符，他们希望通过工会维护自己的合法权益。根据《中华人民共和国工会法》，工会有哪些权利和义务？ 答案：根据《中华人民共和国工会法》，工会享有以下权利和义务：  1. 权利：    - 维护和捍卫劳动者的合法权益，包括工资、劳动条件、职业安全与健康等方面的权益。    - 参与和监督企业制定和完善劳动规章制度。    - 参与劳动关系协调与调解，维护劳动者与雇主之间的合法权益。    - 协助劳动争议的解决与调解，包括组织和参与劳动仲裁、劳动法庭的程序。    - 参与劳动保护监督，监督雇主的合法用工和保护职工的权益。    - 开展职工教育培训，提高劳动者的技能水平和工作能力。    - 参与企业决策与管理，维护职工合法权益的代表。  2. 义务：    - 组织企业员工参加工会，保障劳动者加入工会的自由和平等权利。    - 代表职工与雇主协商和
 ----
 ```
+## UI界面
+### 1.软件包
+先下载streamlit包，终端输入
+```bash
+pip install streamlit
+```
+
+### 2.RAG的向量数据库构建
+1. 创建一个名为`st`的目录，并进入该目录。
+2. 创建python文件，名为"rag_index.py"
+
+```python
+import os
+import json
+import logging
+from typing import List, Tuple, Optional
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+
+# --- 日志配置 ---
+logging.basicConfig(level = logginf.INFO , format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("build_rag_index")
+
+# --- Config ---
+# 原始 SFT jsonl（id,input,output,...）
+DATA_JSONL = "/root/autodl-tmp/SFT/Triplet/DISC-Law-SFT-Triplet-QA-released.jsonl"
+# embeddings 模型路径
+EMB_MODEL_PATH = "../bge-large-zh-v1.5/"
+# 索引保存路径 (app.py 会从这里加载)
+FAISS_INDEX_DIR = "faiss_legal_qa_index"
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 128
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+def load_documents_from_jsonl(path: str) -> List[Document]:
+    """
+    从 JSONL 文件加载数据为 LangChain Document 列表。
+    与你的 rag_manual_v1.py 中的函数相同。
+    """
+    docs = []
+    with open(path , "r" , encoding="utf-8") as f:
+        for i , line in enumerate(f , 1):
+            if not line: continue
+            try:
+                data = json.loads(line)
+            except Exception as e:
+                logger.warning(f"Error loading line {i}: {e}")
+                continue
+            # 处理数据,提取Quest与Answer
+            quest = data.get("input" , "").strip() + "\n"
+            answer = data.get("output" , "").strip()
+            text = f"问题：{quest}\n 答案：{answer}"
+            #处理meta , 为json形式
+            meta = {"id": data.get("id" , f"line_{i}") , "source": "legal_qa" , "line": i}
+            docs.append(Document(page_content=text , metadata=meta))
+    logger.info(f"Loaded {len(docs)} documents from {path}")
+    return docs
+
+def split_documents(docs: List[Document] , chunk_size = CHUNK_SIZE, chunk_overlap = CHUNK_OVERLAP) -> List[Document]:
+    """
+    将文档分割成块。
+    与你的 rag_manual_v1.py 中的函数相同。
+    """
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        length_function=len,
+        add_start_index=False
+    )
+
+    chunks = splitter.split_documents(docs)
+    logger.info(f"Split {len(docs)} documents into {len(chunks)} chunks")
+
+    return chunks
+
+def build_and_save_faiss(chunks: List[Document], emb_model_path: str, index_dir: str) -> None:
+    """
+    构建或加载 FAISS 索引。
+    此版本*强制*构建并保存，覆盖旧的。
+    """
+    # 加载 embeddings 模型
+    emb = HuggingFaceEmbeddings(
+        model_name=emb_model_path,
+        model_kwargs={"device": DEVICE},
+        encode_kwargs={"normalize_embeddings": True, "batch_size": 64},
+    )
+
+    #如果存在索引文件，则覆盖它
+    if os.path.exists(index_dir):
+        logger.warning(f"Index directory {index_dir} already exists, overwriting")
+    
+    logger.info(f"Building FAISS index for {len(chunks)} chunks")
+    vector_db = FAISS.from_documents(chunks, emb)
+    vector_db.save_local(index_dir)
+    logger.info(f"Saved FAISS index to {index_dir}")
+
+def main():
+    if not os.path.exists(DATA_JSONL):
+        logger.error("错误：找不到数据文件 %s", DATA_JSONL)
+        logger.error("请检查 DATA_JSONL 变量路径是否正确。")
+        return
+    if not os.path.exists(EMB_MODEL_PATH):
+        logger.error("错误：找不到嵌入模型路径 %s", EMB_MODEL_PATH)
+        logger.error("请检查 EMB_MODEL_PATH 变量路径是否正确。")
+        return
+    
+    # 1. 加载数据
+    docs = load_documents_from_jsonl(DATA_JSONL)
+    if not docs:
+        logger.error("错误：没有找到数据")
+        return
+    
+    # 2. 分割数据
+    chunks = split_documents(docs)
+    if not chunks:
+        logger.error("错误：没有找到数据块")
+        return
+    
+    # 3. 构建索引并保存
+    build_and_save_faiss(chunks, EMB_MODEL_PATH, FAISS_INDEX_DIR)
+
+if __name__ == "__main__":
+    main()
+```
+
+结果为
+```python
+2025-10-24 10:42:16,129 - build_index - INFO - 加载 JSONL 完成，文档数=23331
+2025-10-24 10:42:17,030 - build_index - INFO - 分块完成：23331 -> 57172
+2025-10-24 10:42:17,030 - build_index - INFO - 加载嵌入模型: ../bge-large-zh-v1.5/
+2025-10-24 10:42:17,033 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: ../bge-large-zh-v1.5/
+2025-10-24 10:42:18,916 - build_index - INFO - 开始构建 FAISS 索引（嵌入并存入）... 这可能需要一些时间。
+2025-10-24 11:10:04,093 - faiss.loader - INFO - Loading faiss with AVX512 support.
+2025-10-24 11:10:04,505 - faiss.loader - INFO - Successfully loaded faiss with AVX512 support.
+2025-10-24 11:10:08,427 - build_index - INFO - FAISS 索引构建完成并保存到 faiss_legal_qa_index
+```
+
+### 3. UI
+1. 创建一个名为 `app.py` 的文件，并添加以下内容：
+```python
+import os
+import re
+import json
+import logging
+from typing import List, Tuple, Optional
+
+import torch
+import streamlit as st
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from peft import PeftModel
+
+# LangChain subpackages
+from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+
+# --- 日志配置 ---
+# (在 Streamlit 中，日志主要输出到终端)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("legal_rag_app")
+
+# -------------------- config (请核对这些路径) --------------------
+# 嵌入模型 (必须与 build_index.py 中的一致)
+EMB_MODEL_PATH = "../bge-large-zh-v1.5/"
+# Base LLM 模型
+BASE_MODEL_PATH = "../Baichuan2-7B-Base/"
+# LoRA adapter 路径 (若无请设为 None)
+LORA_ADAPTER_PATH = "../lora_new_sft_adapter/"
+# 索引加载路径 (必须是 build_index.py 生成的)
+FAISS_INDEX_DIR = "faiss_legal_qa_index"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TOP_K = 5
+# -----------------------------------------------------------------
+
+
+# === 从 rag_manual_v1.py 复制的核心函数 ===
+def init_generation_model(base_model_path: str, lora_adapter_path: Optional[str] = None):
+    """
+    加载 LLM 和 Tokenizer，并包装成 pipeline。
+    与你的 rag_manual_v1.py 中的函数相同。
+    """
+    dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+    logger.info(f"加载 LLM Base模型: {base_model_path}")
+
+    # 检查路径
+    if not os.path.exists(base_model_path):
+        logger.error("错误：找不到模型路径 %s", base_model_path)
+        st.error("错误：找不到模型路径 %s", base_model_path)
+        st.stop()
+    
+    base_model = AutoModelForCausalLM.from_pretrained(
+        base_model_path,
+        torch_dtype=dtype,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+
+    #如果有LoRA adapter，则加载
+    if lora_adapter_path and os.path.exists(lora_adapter_path):
+        try:
+            logger.info(f"加载 LoRA 模型: {lora_adapter_path}")
+            model = PeftModel.from_pretrained(base_model, lora_adapter_path)
+        except Exception as e:
+            logger.error("错误：无法加载 LoRA 模型 %s", lora_adapter_path)
+            model = base_model
+    elif lora_adapter_path:
+        logger.error("错误：找不到 LoRA 模型路径 %s", lora_adapter_path)
+        model = base_model
+    else:
+        model = base_model
+        logger.info("没有找到 LoRA 模型，使用原始模型")
+    
+    tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True , use_fast=False)
+
+    # warp pipeline
+    gen_pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        device_map="auto",
+        torch_dtype=dtype,
+        max_new_tokens=512,  # 默认值
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        repetition_penalty=1.1,
+        pad_token_id=getattr(tokenizer, "eos_token_id", tokenizer.pad_token_id),
+    )
+    logger.info("LLM pipeline 已就绪")
+    return model , tokenizer, gen_pipe
+
+def compose_prompt_with_context(question: str, docs: List[Document]) -> str:
+    """
+    简单 prompt 拼接策略。
+    与你的 rag_manual_v1.py 中的函数相同。
+    """
+    context = []
+    for i , doc in enumerate(docs , 1):
+        text = doc.page_content
+        context.append(f"[{i}] {text.strip()}")
+
+    context_block = "\n\n".join(context)
+
+    prompt = (
+        "你是一个具有法律专业知识的智能助手。请仅基于下面提供的上下文（Context）回答用户的问题，"
+        "并在答案末尾列出你引用的文档编号。\n\n"
+        f"Context:\n{context_block}\n\nQuestion: {question}\n\nAnswer:"
+    )
+    return prompt
+
+def answer_by_rag(gen_pipe, vector_db: FAISS, question: str, k: int = TOP_K) -> dict:
+    """
+    执行 RAG 流程（检索、构建Prompt、生成）。
+    与你的 rag_manual_v1.py 中的函数相同。
+    """
+    # 1. 检索
+    logger.info("正在为问题检索: %s", question[:50] + "...")
+    try:
+        retrieved = vector_db.similarity_search(question, k=k)
+        logger.info("检索到 %d 条文档", len(retrieved))
+    except Exception as e:
+        logger.error("FAISS 检索失败: %s", e)
+        return {"answer": f"抱歉，检索文档时出错: {e}", "source_documents": []}
+
+    # 2. 构建 Prompt
+    prompt = compose_prompt_with_context(question, retrieved)
+
+    # 3. 生成
+    logger.info("正在生成答案...")
+    try:
+        output = gen_pipe(prompt , max_new_tokens=512 , do_sample=True ,temperature=0.7 , top_p=0.9)
+
+        # 处理输出
+        answer = output[0]["generated_text"]
+
+        if answer.startswith(prompt):  # 确保答案不包含 prompt
+            answer = answer[len(prompt):].strip()
+        else:
+            answer = answer.strip()
+
+        logger.info("答案已生成")
+
+    except Exception as e:
+        logger.error("生成答案时出错: %s", e)
+        answer = f"抱歉，模型生成答案时出错: {e}"
+    
+    # 返回结果
+    result = {
+        "answer": answer,
+        "source_documents": retrieved,
+    }
+    return result
+
+# === Streamlit 缓存加载函数 ===
+
+@st.cache_resource
+def load_faiss_index(_emb_model_path, _index_dir):
+    """
+    (仅 Streamlit) 缓存加载 FAISS 索引和嵌入模型。
+    """
+    logger.info("--- 正在加载 FAISS 索引和 BGE 嵌入模型 ---")
+    if not os.path.exists(_emb_model_path):
+        logger.error("!!! 致命错误: 找不到嵌入模型路径: %s", _emb_model_path)
+        st.error(f"错误: 找不到嵌入模型路径: {_emb_model_path}")
+        st.stop()
+    if not os.path.exists(_index_dir):
+        logger.error("!!! 致命错误: 找不到 FAISS 索引: %s", _index_dir)
+        st.error(f"错误: 找不到 FAISS 索引目录: {_index_dir}")
+        st.info("请先运行 `build_index.py` 脚本来创建索引。")
+        st.stop()
+        
+    try:
+        emb = HuggingFaceEmbeddings(
+            model_name=_emb_model_path,
+            model_kwargs={"device": DEVICE},
+            encode_kwargs={"normalize_embeddings": True, "batch_size": 32},
+        )
+        vector_db = FAISS.load_local(_index_dir, emb, allow_dangerous_deserialization=True)
+        logger.info("--- FAISS 索引和 BGE 加载完成 ---")
+        return vector_db
+    except Exception as e:
+        logger.error("!!! 致命错误: 加载 FAISS 索引失败: %s", e)
+        st.error(f"加载 FAISS 索引失败: {e}")
+        st.stop()
+
+@st.cache_resource
+def load_llm_pipeline(_base_model_path, _lora_adapter_path):
+    """
+    (仅 Streamlit) 缓存加载 LLM 生成 pipeline。
+    """
+    logger.info("--- 正在加载 LLM (Baichuan2 + LoRA) ---")
+    # 复用你的函数
+    _, _, gen_pipe = init_generation_model(_base_model_path, _lora_adapter_path)
+    logger.info("--- LLM Pipeline 加载完成 ---")
+    return gen_pipe
+
+# === Streamlit UI 界面 ===
+
+# --- 页面配置 ---
+st.set_page_config(
+    page_title="法律大模型 RAG 问答",
+    page_icon="⚖️",
+    initial_sidebar_state="collapsed"
+)
+
+# --- CSS 样式 (来自你的 minimind 示例) ---
+st.markdown("""
+    <style>
+        /* (这里省略了你提供的长串 CSS，保持原样) */
+        /* ... 你提供的所有 .stButton, .stMainBlockContainer, .stApp 样式 ... */
+        
+        /* 聊天消息样式 */
+        .stChatMessage {
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        /* 用户消息 (靠右) */
+        div[data-testid="chat-message-container"]:has(div[data-testid="stChatMessageContent"][style*="flex-end"]) {
+            /* 也许添加一个背景色 */
+        }
+        /* 助手消息 (靠左) */
+        div[data-testid="chat-message-container"]:has(div[data-testid="stChatMessageContent"][style*="flex-start"]) {
+            /* 也许添加一个背景色 */
+        }
+        
+        /* 来源文档的样式 */
+        .source-container {
+            border-top: 1px solid #eee;
+            margin-top: 15px;
+            padding-top: 10px;
+        }
+        .source-item {
+            font-size: 0.9em;
+            color: #555;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            padding: 8px;
+            margin-bottom: 5px;
+            border: 1px solid #eee;
+        }
+        .source-item summary {
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 标题和Slogan ---
+st.markdown(
+    f'<div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin: 0; padding: 0;">'
+    '<div style="font-style: italic; font-weight: 900; margin: 0; padding-top: 4px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; width: 100%;">'
+    f'<span style="font-size: 40px; margin-right: 10px;">⚖️</span>'
+    f'<span style="font-size: 26px; margin-left: 10px;">法律大模型 RAG 问答</span>'
+    '</div>'
+    '<span style="color: #bbb; font-style: italic; margin-top: 6px; margin-bottom: 10px;">内容由AI生成，并基于检索的法条，请仔细甄别</span>'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+# --- 加载模型和索引 ---
+# (这会在页面首次加载时运行，并缓存结果)
+try:
+    vector_db = load_faiss_index(EMB_MODEL_PATH, INDEX_DIR)
+    gen_pipe = load_llm_pipeline(BASE_MODEL_PATH, LORA_ADAPTER_PATH)
+except Exception as e:
+    logger.error("致命错误: 模型加载失败: %s", e)
+    pass
+
+# --- 聊天界面 ---
+
+# 初始化 session_state
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# 在侧边栏添加清空按钮
+st.sidebar.title("选项")
+if st.sidebar.button("清空聊天记录", use_container_width=True):
+    st.session_state.messages = []
+    st.rerun() # 重新运行以清空界面
+
+# 显示历史消息
+for message in st.session_state.messages:
+    avatar = "⚖️" if message["role"] == "assistant" else "👤"
+    with st.chat_message(message["role"], avatar=avatar):
+        # 助手消息可能包含 HTML (用于来源)
+        if message["role"] == "assistant":
+            st.markdown(message["content"], unsafe_allow_html=True)
+        else:
+            st.markdown(message["content"])
+
+# 获取用户输入
+if prompt := st.chat_input("请输入你的法律问题..."):
+    # 1. 将用户消息添加到 session_state
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # 2. 显示用户消息
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
+
+    # 3. 生成助手回复
+    with st.chat_message("assistant", avatar="⚖️"):
+        # 使用占位符显示 "思考中..."
+        placeholder = st.empty()
+        placeholder.markdown("🔍 正在检索相关法条并生成答案...")
+        
+        # 调用你的 RAG 核心函数
+        # (这是阻塞操作，会等待模型返回)
+        result_dict = answer_by_rag(gen_pipe, vector_db, prompt, k=TOP_K)
+        
+        answer = result_dict.get("answer", "抱歉，未能生成答案。")
+        sources = result_dict.get("source_documents", [])
+        
+        # 4. 格式化并显示助手答案
+        full_response = f"{answer}\n\n"
+        
+        if sources:
+            full_response += '<div class="source-container"><strong>参考来源：</strong>\n'
+            for i, doc in enumerate(sources, 1):
+                # 提取元数据和内容片段
+                source_id = doc.metadata.get('id', f'doc_{i}')
+                snippet = doc.page_content.replace('\n', ' ').strip()
+                snippet_preview = snippet[:150] + "..." if len(snippet) > 150 else snippet
+                
+                full_response += (
+                    f'<details class="source-item">'
+                    f'<summary>来源 [{i}] (ID: {source_id})</summary>'
+                    f'<div>{snippet_preview}</div>'
+                    f'</details>\n'
+                )
+            full_response += '</div>'
+        else:
+            full_response += '<div class="source-container"><strong>未检索到相关上下文。</strong></div>'
+
+        # 更新占位符
+        placeholder.markdown(full_response, unsafe_allow_html=True)
+        
+        # 5. 将助手消息添加到 session_state
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+```
+在终端输入启动
+```bash
+streamlit run app.py --server.address=127.0.0.1 --server.port=6006
+```
+
 
 ## 7.想法与改进
-### 7.1 可视化界面
+### 7.1 可视化界面(大致完成)
 ### 7.2 微调后生成的模型对话生硬，可在基础上进行DPO优化
 ### 7.3 QA数据未进行清洗与筛选，如困惑度筛选，去重等
 ### 7.4 未成功尝试多卡训练，之前的3卡4090没跑成
@@ -1702,6 +2194,9 @@ if __name__ == "__main__":
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
 
 ## 8.更新
+### 2025.10.24
+实现了简易UI界面
+
 ### 2025.10.22
 训了第二轮LoRA,明天补上
 
