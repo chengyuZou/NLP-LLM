@@ -1473,6 +1473,224 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+
+# logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("rag_manual_v1")
+
+#Config (需要进行修改)
+DATA_JSONL = "/root/autodl-tmp/SFT/Triplet/DISC-Law-SFT-Triplet-QA-released.jsonl"   # 原始 SFT jsonl（id,input,output,...）
+EMB_MODEL_PATH = "./bge-large-zh-v1.5/"                   # embeddings 模型
+BASE_MODEL_PATH = "./Baichuan2-7B-Base/"                  # base 模型目录
+LORA_ADAPTER_PATH = "./lora_new_sft_adapter/"             # LoRA adapter 目录（若无可设为 None）
+FAISS_INDEX_DIR = "faiss_legal_qa_index"                  # 索引保存路径
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 128
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TOP_K = 5
+
+
+
+#加载原json文件，构建为Docunment列表
+def load_documents_from_jsonl(path: str) -> List[Document]:
+    docs = []
+    with open(path, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+            except Exception as e:
+                logger.warning("跳过第 %d 行，JSON 解析失败: %s", i, e)
+                continue
+            q = j.get("input", "").strip() + "\n"
+            a = j.get("output", "").strip()
+            text = f"问题：{q}\n答案：{a}"
+            meta = {"id": j.get("id", f"line_{i}"), "line": i, "source": "legal_qa"}
+            docs.append(Document(page_content=text, metadata=meta))
+    logger.info("加载 JSONL 完成，文档数=%d", len(docs))
+    return docs
+
+# 进行文本分块
+def split_documents(docs: List[Document], chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP) -> List[Document]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        length_function=len,
+        is_separator_regex=False
+    )
+    chunks = splitter.split_documents(docs)
+    logger.info("分块完成：%d -> %d", len(docs), len(chunks))
+    return chunks
+
+# 构建向量数据库与emb模型
+def build_or_load_faiss(chunks: List[Document], emb_model_path: str, index_dir: str) -> Tuple[FAISS, HuggingFaceEmbeddings]:
+    # 创建 embedding wrapper
+    emb = HuggingFaceEmbeddings(
+        model_name=emb_model_path,
+        model_kwargs={"device": DEVICE},
+        encode_kwargs={"normalize_embeddings": True, "batch_size": 64},
+    )
+    # 若已有索引目录则 load，否则 build 并保存
+    if os.path.exists(index_dir) and os.listdir(index_dir):
+        logger.info("检测到已有 FAISS 索引，尝试加载：%s", index_dir)
+        vector_db = FAISS.load_local(index_dir, emb, allow_dangerous_deserialization=True)
+        logger.info("FAISS 索引加载完成")
+    else:
+        logger.info("构建 FAISS 索引（嵌入并存入）...")
+        vector_db = FAISS.from_documents(chunks, emb)
+        vector_db.save_local(index_dir)
+        logger.info("FAISS 索引构建并保存到 %s", index_dir)
+    return vector_db, emb
+
+def init_generation_model(base_model_path: str, lora_adapter_path: Optional[str] = None):
+    # 加载基础模型（仅用于推理 pipeline 包装）
+    dtype = torch.float16 if DEVICE.startswith("cuda") else torch.float32
+    logger.info("加载 base 模型（dtype=%s，device=%s）", dtype, DEVICE)
+    base_model = AutoModelForCausalLM.from_pretrained(
+        base_model_path, torch_dtype=dtype, device_map="auto", trust_remote_code=True
+    )
+    # 如有 LoRA adapter，加载
+    if lora_adapter_path and os.path.exists(lora_adapter_path):
+        try:
+            model = PeftModel.from_pretrained(base_model, lora_adapter_path)
+            logger.info("LoRA adapter 从 %s 加载成功", lora_adapter_path)
+        except Exception as e:
+            logger.warning("加载 LoRA 失败，使用 base model：%s", e)
+            model = base_model
+    else:
+        model = base_model
+    model.use_cache = False
+    # tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True, use_fast=False)
+    # wrap pipeline (注意 device_map="auto" 可能把 model 分散到多卡)
+    gen_pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        device_map="auto",
+        torch_dtype=dtype,
+        max_new_tokens=512,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        repetition_penalty=1.1,
+        pad_token_id=getattr(tokenizer, "eos_token_id", tokenizer.pad_token_id),
+    )
+    logger.info("文本生成 pipeline 创建完成")
+    return model, tokenizer, gen_pipe
+
+
+def compose_prompt_with_context(question: str, docs: List[Document]) -> str:
+    """
+    简单 prompt 拼接策略 — 2-step RAG。
+    你可以按需求替换成更复杂的模板（例如包含 <analysis> / <advice> 标签）
+    """
+    ctxs = []
+    for i, d in enumerate(docs, 1):
+        # 每个 doc 只保留前 N 字以防过长
+        snippet = d.page_content.strip()
+        ctxs.append(f"[{i}] {snippet}")
+    context_block = "\n\n".join(ctxs)
+    prompt = (
+        "你是一个具有法律专业知识的智能助手。请仅基于下面提供的上下文（Context）回答用户的问题，"
+        "并在答案末尾列出你引用的文档编号。\n\n"
+        f"Context:\n{context_block}\n\nQuestion: {question}\n\nAnswer:"
+    )
+    return prompt
+
+
+def answer_by_rag(gen_pipe, vector_db: FAISS, question: str, k: int = TOP_K) -> dict:
+    # 检索
+    retrieved = vector_db.similarity_search(question, k=k)
+    logger.info("检索到 %d 条文档", len(retrieved))
+
+    # 构建 prompt
+    prompt = compose_prompt_with_context(question, retrieved)
+
+    # 生成（pipeline 返回 list）
+    out = gen_pipe(prompt, max_new_tokens=512, do_sample=True, temperature=0.7, top_p=0.9)
+    raw_text = out[0].get("generated_text", "")
+    # 有些 pipeline 会返回 prompt+生成，去掉 prompt 部分
+    if raw_text.startswith(prompt):
+        answer = raw_text[len(prompt):].strip()
+    else:
+        answer = raw_text.strip()
+
+    # 返回 answer + sources
+    result = {
+        "answer": answer,
+        "raw": raw_text,
+        "source_documents": [{"id": d.metadata.get("id"), "snippet": d.page_content[:800], "metadata": d.metadata} for d in retrieved]
+    }
+    return result
+
+
+def main():
+    # 1. 加载原始数据并分块（只在你需要重建索引时使用）
+    docs = load_documents_from_jsonl(DATA_JSONL)
+    chunks = split_documents(docs, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+
+    # 2. build / load FAISS
+    vector_db, emb_model = build_or_load_faiss(chunks, EMB_MODEL_PATH, FAISS_INDEX_DIR)
+
+    # 3. 初始化模型 pipeline（LoRA 推理）
+    model, tokenizer, gen_pipe = init_generation_model(BASE_MODEL_PATH, LORA_ADAPTER_PATH)
+
+    # 4. 示例查询
+    q = "劳动合同法保护哪些权益？"
+    res = answer_by_rag(gen_pipe, vector_db, q, k=5)
+
+    print("==== ANSWER ====\n", res["answer"])
+    print("\n==== SOURCES ====")
+    for i, s in enumerate(res["source_documents"], 1):
+        print(f"{i}. id={s['id']} meta={s['metadata']}")
+        print(s["snippet"][:400].replace("\n", " "))
+        print("----")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+生成
+
+```python
+==== ANSWER ====
+ 根据《劳动合同法》，该法案规定了劳动者的基本权益，主要包括以下几个方面：
+
+1. 劳动合同的订立：法律规定了劳动者与用人单位之间必须签署书面劳动合同，明确双方的权利和义务。如果没有签署劳动合同，则视为没有建立劳动关系。
+
+2. 工资及福利待遇：劳动合同中必须明确规定劳动者的工资收入、福利待遇和其他待遇等内容。如果出现争议，应由用人单位承担举证责任。
+
+3. 工作时间及休息休假：劳动合同中应明确规定每日工作时长、每周休息时间、法定节假日和年休假等。用人单位不得安排劳动者延长工作时间和加班加点。
+
+4. 劳动保护和安全：劳动合同中应有关于劳动保护和安全的条款，内容包括工作场所的安全、职业病防治、工伤事故预防等。
+
+5. 职业培训及晋升机会：劳动合同中应有关于职业培训的安排，让劳动者有机会掌握新的知识和技能；同时还要给予晋升的机会，为劳动者提供发展的空间。
+
+6. 社会保险及其他福利：劳动合同中还应该有关于社会保险和其他福利的内容，比如养老保险、医疗保险、失业保险等，还有住房公积金和带薪假期等政策。
+
+总而言之，《劳动合同法》从多方面保障了劳动者的合法权益，让他们能够享受到稳定的工作环境、合理的工资待遇和充分的社会保障。
+
+==== SOURCES ====
+1. id=line_31027 meta={'id': 'line_31027', 'source': 'legal_qa', 'line_number': 31027}
+问题：某公司未依法与职工签订劳动合同，又未参加社会保险，同时也没有提供充足的职业教育和岗位培训，该如何保护职工的合法权益？ 答案：根据《公司法》第十七条和第十八条的规定，针对某公司未依法与职工签订劳动合同、未参加社会保险，以及未提供充足的职业教育和岗位培训等情况，可以采取以下措施来保护职工的合法权益：  1. 公司应当依法与职工签订劳动合同，确保职工合法权益的得到尊重和保护。 2. 公司必须参加社会保险，确保职工享有相应的社会保险权益，包括养老保险、医疗保险、失业保险等。 3. 公司应当加强劳动保护，确保职工的劳动安全和健康。 4. 公司应该采取多种形式，加强公司职工的职业教育和岗位培训，提高职工素质。 5. 公司职工可以依照《中华人民共和国工会法》的规定自行组织工会，通过工会来维护职工的合法权益。 6. 公司应当为本公司工会提供必要的活动条件，支持工会的正常运作。 7. 公司工会可以代表
+----
+2. id=line_29706 meta={'id': 'line_29706', 'source': 'legal_qa', 'line_number': 29706}
+ 劳动者有哪些权利可以保障他们的劳动权益？ 答案：根据所提供的相关法律条文，《劳动法》确保劳动者的劳动权益。以下是劳动者的一些权利：  1. 平等就业和选择职业的权利（《劳动法》第三条）：劳动者有权公平地从事职业，并自主选择自己的工作。  2. 取得劳动报酬的权利（《劳动法》第三条）：劳动者有权获得与自己劳动成果相符的合理报酬。  3. 休息休假的权利（《劳动法》第三条）：劳动者有享受休息休假的权利，包括法定节假日和带薪年假。  4. 获得劳动安全卫生保护的权利（《劳动法》第三条）：劳动者有权在工作场所获得良好的劳动安全环境和必要的劳动保护设施。  5. 接受职业技能培训的权利（《劳动法》第三条）：劳动者有权接受与工作相关的职业技能培训，提升自己
+----
+3. id=line_5003 meta={'id': 'line_5003', 'source': 'legal_qa', 'line_number': 5003}
+问题：劳动合同应具备哪些条款？ 答案：《劳动合同法》对劳动合同必备条款的规定包括这样几个方面：?用人单位的基本情况：如名称、住所和法定代表人或者主要负责人?劳动者的主要情况：如姓名、住址、居民身份证或者其他有效身份证件号码?劳动合同期限?工作内容和工作地点?工作时间和休息休假?劳动报酬?社会保险?劳动保护、劳动条件和职业危害防护?法律法规规定应当纳入劳动合同的其他事项此外，劳动者和用人单位可以约定试用期、培训、保密、补充保险和福利待遇等其他事项
+----
+4. id=line_34053 meta={'id': 'line_34053', 'source': 'legal_qa', 'line_number': 34053}
+问题：某家企业未依法保障员工权益，是否违反了《社会法-就业促进法》？有哪些组织可以协助维护员工权益？ 答案：根据《就业促进法》第八条的规定，用人单位应当依法保障劳动者的合法权益。如果某家企业未依法保障员工权益，可以认定违反了《社会法-就业促进法》。  针对这种情况，可以有一些组织可以协助维护员工权益。根据《就业促进法》第九条的规定，工会、共产主义青年团、妇女联合会、残疾人联合会以及其他社会组织都可以依法维护劳动者的劳动权利，它们可以协助人民政府开展促进就业工作，并提供维护员工权益的支持。  因此，如果某家企业未依法保障员工权益，员工可以寻求工会、共产主义青年团、妇女联合会、残疾人联合会或其他社会组织的帮助来维护自己的权益。同时，县级以上人民政府和有关部门也有责任统筹协调产业政策与就业政策，如果相关组织无法维护员工权益，员工还可以向人民政府和有关部门反映情况，寻求进一步的支持和保护。  显示
+----
+5. id=line_25491 meta={'id': 'line_25491', 'source': 'legal_qa', 'line_number': 25491}
+问题：某公司的员工发现自己的工资和劳动合同不符，他们希望通过工会维护自己的合法权益。根据《中华人民共和国工会法》，工会有哪些权利和义务？ 答案：根据《中华人民共和国工会法》，工会享有以下权利和义务：  1. 权利：    - 维护和捍卫劳动者的合法权益，包括工资、劳动条件、职业安全与健康等方面的权益。    - 参与和监督企业制定和完善劳动规章制度。    - 参与劳动关系协调与调解，维护劳动者与雇主之间的合法权益。    - 协助劳动争议的解决与调解，包括组织和参与劳动仲裁、劳动法庭的程序。    - 参与劳动保护监督，监督雇主的合法用工和保护职工的权益。    - 开展职工教育培训，提高劳动者的技能水平和工作能力。    - 参与企业决策与管理，维护职工合法权益的代表。  2. 义务：    - 组织企业员工参加工会，保障劳动者加入工会的自由和平等权利。    - 代表职工与雇主协商和
+----
 ```
 
 ## 7.想法与改进
@@ -1489,6 +1707,7 @@ from langchain_community.vectorstores import FAISS
 
 ### 2025.10.18
 比样的 SFT数据我给用来RL了，气笑了
+
 
 
 
