@@ -1,5 +1,10 @@
 # 基于BaiChuan2-7B的法律微调大模型+RAG问答
 
+大致效果
+
+<img width="1920" height="1032" alt="法律大模型 RAG 问答 和另外 4 个页面 - 个人 - Microsoft​ Edge 2025_10_24 11_16_52" src="https://github.com/user-attachments/assets/68c2714b-11b0-41ee-a1cc-444d79941881" />
+
+
 技术栈：
 
 • 实现了完整的pipeline，包括数据预处理、模型训练、评估和部署。
@@ -2202,6 +2207,7 @@ streamlit run app.py --server.address=127.0.0.1 --server.port=6006
 
 ### 2025.10.18
 比样的 SFT数据我给用来RL了，气笑了
+
 
 
 
