@@ -2206,7 +2206,8 @@ streamlit run app.py --server.address=127.0.0.1 --server.port=6006
 训了第二轮LoRA,明天补上
 
 ### 2025.10.18
-比样的 SFT数据我给用来RL了，气笑了
+训练数据用错了
+
 
 
 
