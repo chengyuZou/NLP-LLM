@@ -2,7 +2,6 @@
 
 本项目实现了一个端到端的中文法律问答系统。它使用 LoRA 对 Baichuan2-7B 模型在法律 QA 数据集上进行了两次微调，并结合了高级 RAG（检索增强生成）流程实现深度搜索功能，提供了一个可交互的 Streamlit Web 界面。
 
-**RAG 流程**: BM25 (稀疏检索) \+ FAISS/BGE (稠密检索) \-\> RRF (多路召回融合) \-\> BGE-Reranker (精排) \-\> LLM (生成答案)
 
 ## **演示效果**
 
@@ -27,6 +26,8 @@ CUDA == 12.8
 * **检索 (Retrieval)**: rank-bm25 (稀疏), faiss (稠密)  
 * **框架**: Pytorch ,LangChain, Streamlit  
 * **评测**: Perplexity (PPL), Rouge , HR, MRR
+* **RAG 流程**: BM25 (稀疏检索) \+ FAISS/BGE (稠密检索) \-\> RRF (多路召回融合) \-\> BGE-Reranker (精排) \-\> LLM (生成答案)
+
 
 ## **1\. 快速开始：运行 UI 界面**
 
