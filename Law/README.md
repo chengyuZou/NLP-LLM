@@ -6,15 +6,18 @@
 
 ## **演示效果**
 
+![0896411bb7d4bdae1c0658353037e888](https://github.com/user-attachments/assets/73f3ec0c-c5c5-4512-9b78-2538b031a1b8)
+
+
 ## **核心技术栈**
 
 * **模型**: baichuan-inc/Baichuan2-7B-Base  
 * **微调**: PEFT (LoRA), Transformers Trainer  
 * **嵌入 (Embedding)**: bge-large-zh-v1.5  
-* **重排 (Reranker)**: bge-rerank-large (在你的 v2 计划中)  
-* **检索 (Retrieval)**: rank-bm25 (稀疏), faiss-gpu (稠密)  
-* **框架**: LangChain, Streamlit  
-* **评测**: Perplexity (PPL), 
+* **重排 (Reranker)**: bge-rerank-large  
+* **检索 (Retrieval)**: rank-bm25 (稀疏), faiss (稠密)  
+* **框架**: Pytorch ,LangChain, Streamlit  
+* **评测**: Perplexity (PPL), Rouge , HR, MRR
 
 ## **1\. 快速开始：运行 UI 界面**
 
@@ -23,20 +26,26 @@
 ### **1.1. 环境配置**
 
 \# 1\. 克隆仓库  
+```bash
 git clone https://github.com/chengyuZou/NLP-LLM.git  
 cd NLP-LLM
+cd Law
+```
 
 \# 2\. 安装依赖  
+```bash
 pip install \-r requirements.txt
+```
 
 ### **1.2. 下载模型和数据**
 
 本项目需要以下预训练模型和数据：
 
 1. **基础模型**: 下载 Baichuan2-7B-Base 并放入 models/Baichuan2-7B-Base/ 目录。  
-2. **嵌入模型**: 下载 bge-large-zh-v1.5 并放入 models/bge-large-zh-v1.5/ 目录。  
-3. **本项目 LoRA 适配器**: 从 [Hugging Face](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT) 下载我的 两个LoRA 权重，并放入 models 目录里解压。  
-4. **数据集**: 从 [Hugging Face](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT) 下载两个数据集 DISC-Law-SFT-Pair-QA-released.jsonl与DISC-Law-SFT-Triplet-QA-released.jsonl 并放入 data/ 目录。
+2. **嵌入模型**: 下载 bge-large-zh-v1.5 并放入 models/bge-large-zh-v1.5/ 目录。
+3. **Rerank模型** 下载BAAI/bge-reranker-large 并放入 models/bge-rerank-large/目录
+4. **本项目 LoRA 适配器**: 从 [Hugging Face](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT) 下载我的 两个LoRA 权重，并放入 models 目录里解压。 解压后分别命名为 lora_legal_qa_adapter 和 lora_new_legal_qa_adapter
+5. **数据集**: 从 [Hugging Face](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT) 下载两个数据集 DISC-Law-SFT-Pair-QA-released.jsonl与DISC-Law-SFT-Triplet-QA-released.jsonl 并放入 data/ 目录。
 
 *(请在 src/config.py 中检查并确认所有路径均正确配置)*
 
