@@ -63,14 +63,14 @@ pip install -r requirements.txt
 
 \# 这将读取 data/ 中的 jsonl 文件，并创建索引到 index/ 目录  
 ```bash
-python scripts/build\_index.py
+python scripts/build_index.py
 ```
 
 ### **1.4. 启动 Streamlit 应用**
 
 ```bash
-\# 启动 Web UI  
-streamlit run app/app.py \--server.address=127.0.0.1 \--server.port=6006
+# 启动 Web UI  
+streamlit run app/app.py --server.address=127.0.0.1 --server.port=6006
 ```
 
 现在你可以打开浏览器访问 http://127.0.0.1:6006 开始提问。
@@ -95,7 +95,7 @@ streamlit run app/app.py \--server.address=127.0.0.1 \--server.port=6006
 此脚本将原始的 Pair-QA 数据转换为 LoRA\_data.jsonl 格式。
 
 ```bash
-python scripts/1\_prepare\_data.py
+python scripts/prepare_data.py
 ```
 
 ### **2.2. 训练 LoRA 模型**
@@ -105,7 +105,7 @@ python scripts/1\_prepare\_data.py
 \# 确保在 src/config.py 中配置了正确的路径
 
 ```
-python scripts/train\_lora\_sft.py
+python scripts/train_lora_sft.py
 ```
 
 ### **2.3. 评测模型（困惑度 PPL）**
@@ -113,7 +113,7 @@ python scripts/train\_lora\_sft.py
 此脚本将分别计算 Base 模型和 LoRA 模型在测试集上的困惑度（Perplexity）。
 
 ```bash
-python scripts/evaluate\_ppl.py
+python scripts/evaluate_ppl.py
 ```
 
 #### **评测结果 (PPL)**
@@ -128,7 +128,7 @@ python scripts/evaluate\_ppl.py
 此脚本将全面评估 RAG pipeline 的质量。
 
 ```bash
-python scripts/evaluate\_rag.py
+python scripts/evaluate_rag.py
 ```
 
 ## **项目路线图 (Roadmap)**
