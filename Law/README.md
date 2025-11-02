@@ -2199,6 +2199,9 @@ streamlit run app.py --server.address=127.0.0.1 --server.port=6006
 ### 7.6 刚学了两个月LLM就来做东西，有些东西感觉没说明白
 
 ## 8.更新
+### 2025.11.2
+优化RAG流程
+
 ### 2025.10.24
 实现了简易UI界面
 
@@ -2207,6 +2210,7 @@ streamlit run app.py --server.address=127.0.0.1 --server.port=6006
 
 ### 2025.10.18
 训练数据用错了
+
 
 
 
