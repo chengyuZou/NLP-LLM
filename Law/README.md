@@ -34,16 +34,16 @@ cd Law
 
 \# 2\. 安装依赖  
 ```bash
-pip install \-r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### **1.2. 下载模型和数据**
 
 本项目需要以下预训练模型和数据：
 
-1. **基础模型**: 下载 Baichuan2-7B-Base 并放入 models/Baichuan2-7B-Base/ 目录。  
-2. **嵌入模型**: 下载 bge-large-zh-v1.5 并放入 models/bge-large-zh-v1.5/ 目录。
-3. **Rerank模型** 下载BAAI/bge-reranker-large 并放入 models/bge-rerank-large/目录
+1. **基础模型**: 从 [Hugging_Face](https://huggingface.co/baichuan-inc/Baichuan2-7B-Base)下载 Baichuan2-7B-Base 并放入 models/Baichuan2-7B-Base/ 目录。  
+2. **嵌入模型**: 从 [Hugging_Face](https://huggingface.co/BAAI/bge-large-zh-v1.5)下载 bge-large-zh-v1.5 并放入 models/bge-large-zh-v1.5/ 目录。
+3. **Rerank模型** 从 [Hugging_Face](https://huggingface.co/BAAI/bge-reranker-large)下载 BAAI/bge-reranker-large 并放入 models/bge-rerank-large/目录
 4. **本项目 LoRA 适配器**: 从 [Hugging Face](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT) 下载我的 两个LoRA 权重，并放入 models 目录里解压。 解压后分别命名为 lora_legal_qa_adapter 和 lora_new_legal_qa_adapter
 5. **数据集**: 从 [Hugging Face](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT) 下载两个数据集 DISC-Law-SFT-Pair-QA-released.jsonl与DISC-Law-SFT-Triplet-QA-released.jsonl 并放入 data/ 目录。
 
@@ -114,14 +114,13 @@ python scripts/evaluate\_rag.py
 ## **项目路线图 (Roadmap)**
 
 本项目还在持续改进中，后续计划包括：
-* \[x\] **打注释**: 注释没时间打
-* \[x\] **重构架构**: 将所有代码从 README 迁移到 src/ 和 scripts/ (正在做)  
-* \[√\] **高级 RAG**: 实现 BM25 \+ RRF \+ BGE-Rerank 流程 (已完成)
-* \[x\] **代码详解**: 每个代码都有一个讲解的markdown 文件。
-* \[x\] **RAG 评测**: 使用 RAGAS 代替 HitRate/MRR (待完成)  
-* \[x\] **DPO 优化**: 解决模型对话生硬问题，在 SFT 基础上进行 DPO。  
-* \[x\] **数据清洗**: 对 QA 数据进行去重和基于困惑度的筛选。  
-* \[x\] **多卡训练**: 解决多卡训练（DDP）的配置问题。
+* \[ x\] **打注释**: 注释没时间打
+* \[ x\] **重构架构**: 将所有代码从 README 迁移到 src/ 和 scripts/ (正在做)  
+* \[ x\] **代码详解**: 每个代码都有一个讲解的markdown 文件。
+* \[ x\] **RAG 评测**: 使用 RAGAS 代替 HitRate/MRR (待完成)  
+* \[ x\] **DPO 优化**: 解决模型对话生硬问题，在 SFT 基础上进行 DPO。  
+* \[ x\] **数据清洗**: 对 QA 数据进行去重和基于困惑度的筛选。  
+* \[ x\] **多卡训练**: 解决多卡训练（DDP）的配置问题。
 
 ## **许可证 (License)**
 
