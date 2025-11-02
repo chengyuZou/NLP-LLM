@@ -5,8 +5,8 @@
 **RAG 流程**: BM25 (稀疏检索) \+ FAISS/BGE (稠密检索) \-\> RRF (多路召回融合) \-\> BGE-Reranker (精排) \-\> LLM (生成答案)
 
 ## **演示效果**
-(会补上)
-![0896411bb7d4bdae1c0658353037e888](https://github.com/user-attachments/assets/73f3ec0c-c5c5-4512-9b78-2538b031a1b8)
+
+https://github.com/user-attachments/assets/81f689de-515e-493b-ba10-71d01b718289
 
 ## **需求**
 * **平台**: AutoDL
