@@ -9,6 +9,7 @@
 ![0896411bb7d4bdae1c0658353037e888](https://github.com/user-attachments/assets/73f3ec0c-c5c5-4512-9b78-2538b031a1b8)
 
 ## **需求**
+* **平台**: AutoDL
 * **显卡**: A800 1张(80G显存)
 * **镜像**:
 ```text
