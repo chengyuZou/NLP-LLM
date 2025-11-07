@@ -1,0 +1,19 @@
+transformers
+peft
+json
+numpy
+pandas
+datasets
+langchain == 1.0.2
+langchain-classic == 1.0.0
+langchain-cli == 0.0.37
+langchain-community == 0.4
+langchain-core == 1.0.0
+langchain-huggingface == 1.0.0
+langchain-text-splitters == 1.0.0
+jieba
+streamlit
+rank_bm25
+tqdm
+evaluate
+rouge_chinese
