@@ -80,17 +80,17 @@ streamlit run app/app.py --server.address=127.0.0.1 --server.port=6006
 ## **2\. 进阶：复现项目（训练与评测）**
 
 如果你想从头开始复现整个项目，请按顺序执行 scripts/ 目录中的脚本。顺序为:
-1. prepare\_data.py
+1. prepare_data.py
 
-2. train\_lora\_sft.py
+2. train_lora_sft.py
 
-3. triann\_new\_lora.py
+3. triann_new_lora.py
 
-4. evaluate\_ppl.py
+4. evaluate_ppl.py
 
-5. build\_index.py
+5. build_index.py
 
-6. evaluate\_rag.py
+6. evaluate_rag.py
 
 ### **2.1. 准备 SFT 数据**
 
@@ -106,11 +106,28 @@ python scripts/prepare_data.py
 
 \# 确保在 src/config.py 中配置了正确的路径
 
-```
-python scripts/train_lora_sft.py
+```bash
+torchrun --nproc_per_node=x train_lora_sft.py
 ```
 
-### **2.3. 评测模型（困惑度 PPL）**
+其中(x)为你的显卡数量. 有几张显卡，这里就填几
+
+eg: 
+```bash
+torchrun --nproc_per_node=2 train_lora_sft.py # 运行两个显卡
+```
+
+### **2.3. 训练新 LoRA 模型**
+
+此脚本将加载 第一次训练的LoRA 模型和 data/DISC-Law-SFT-Triplet-QA-released.jsonl 执行 SFT，并将新的 LoRA 适配器保存到 models/ 目录。
+
+同理
+
+```bash
+torchrun --nproc_per_node=x triann_new_lora.py
+```
+
+### **2.4. 评测模型（困惑度 PPL）**
 
 此脚本将分别计算 Base 模型和 LoRA 模型在测试集上的困惑度（Perplexity）。
 
@@ -125,7 +142,15 @@ python scripts/evaluate_ppl.py
 | Baichuan2-7B (Base) | 4.4633 | 1.4959 | \- |
 | **Baichuan2-7B (LoRA v2)** | **3.7871** | **1.3316** | **15.15%** |
 
-### **2.4. 评测 RAG 系统**
+### **2.5. 构建索引**
+
+此脚本将读取 data/DISC-Law-SFT-Pair-QA-released.jsonl 文件，并创建索引到 index/ 目录,以便检索数据。
+
+```bash
+python scripts/build_index.py
+```
+
+### **2.6. 评测 RAG 系统**
 
 此脚本将全面评估 RAG pipeline 的质量。
 
@@ -140,7 +165,7 @@ python scripts/evaluate_rag.py
 * \[ x\] **代码详解**: 每个代码都有一个讲解的markdown 文件。
 * \[ x\] **RAG 评测**: 使用 RAGAS 代替 HitRate/MRR (待完成)  
 * \[ x\] **DPO 优化**: 解决模型对话生硬问题，在 SFT 基础上进行 DPO。  
-* \[ x\] **多卡训练**: 解决多卡训练（DDP）的配置问题。
+* \[ x\] **纯手写**: 不使用各种库函数,手写实现各种功能
 
 ## **许可证 (License)**
 
