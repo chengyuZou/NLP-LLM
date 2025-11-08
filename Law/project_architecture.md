@@ -2,7 +2,7 @@ Legal-LLM-RAG/
 
 ├── app/
 
-│   ├── app.py             # 你的 Streamlit UI 界面代码
+│   ├── app.py             # Streamlit UI 界面代码
 
 │   └── (app_utils.py)     # (可选) 如果 UI 逻辑变复杂，可以把辅助函数放这里
 
@@ -58,7 +58,7 @@ Legal-LLM-RAG/
 
 │   ├── train_new_lora.py # 第二次训练LoRA 模型
 
-│   └── evaluate_rag.py # 你的 RAGAS 
+│   └── evaluate_rag.py # RAG评估 
 
 |
 
@@ -82,5 +82,6 @@ Legal-LLM-RAG/
 
 ├── requirements.txt       # 列出所有 Python 依赖包 (pip install -r requirements.txt)
 
-└── README.md              # 你的新门面！(见下一个文件)
+└── README.md              
+
 
