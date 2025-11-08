@@ -51,9 +51,9 @@ pip install -r requirements.txt
 
 本项目需要以下预训练模型和数据：
 
-1. **基础模型**: 从 [Hugging_Face](https://huggingface.co/baichuan-inc/Baichuan2-7B-Base)下载 Baichuan2-7B-Base 并放入 models/Baichuan2-7B-Base/ 目录。  
-2. **嵌入模型**: 从 [Hugging_Face](https://huggingface.co/BAAI/bge-large-zh-v1.5)下载 bge-large-zh-v1.5 并放入 models/bge-large-zh-v1.5/ 目录。
-3. **Rerank模型** 从 [Hugging_Face](https://huggingface.co/BAAI/bge-reranker-large)下载 BAAI/bge-reranker-large 并放入 models/bge-rerank-large/目录
+1. **基础模型**: 从 [Hugging_Face](https://huggingface.co/baichuan-inc/Baichuan2-7B-Base)下载 Baichuan2-7B-Base 并放入 models/ 目录。  
+2. **嵌入模型**: 从 [Hugging_Face](https://huggingface.co/BAAI/bge-large-zh-v1.5)下载 bge-large-zh-v1.5 并放入 models/ 目录。
+3. **Rerank模型** 从 [Hugging_Face](https://huggingface.co/BAAI/bge-reranker-large)下载 BAAI/bge-reranker-large 并放入 models/目录
 4. **本项目 LoRA 适配器**: 从 [Hugging Face](https://huggingface.co/erfsdfds/BaiChuan2-7B-Law-SFT) 下载我的 两个LoRA 权重，并放入 models 目录里解压。 解压后分别命名为 lora_legal_qa_adapter 和 lora_new_legal_qa_adapter
 5. **数据集**: 从 [Hugging Face](https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT) 下载两个数据集 DISC-Law-SFT-Pair-QA-released.jsonl与DISC-Law-SFT-Triplet-QA-released.jsonl 并放入 data/ 目录。
 
