@@ -35,10 +35,10 @@ def process_function(examples):
 
         # 合并输入和回复的token
         input_id = inputs["input_ids"] + response["input_ids"]
-        attention_mask = input["attention_mask"] + response["attention_mask"]
+        attention_mask = inputs["attention_mask"] + response["attention_mask"]
         
         # 创建标签：输入部分用-100忽略，只计算回复部分的loss
-        label = [-100] * len(input_id["input_ids"]) + response["input_ids"]
+        label = [-100] * len(inputs["input_ids"]) + response["input_ids"]
 
         # 处理长度超过限制的情况：截断
         if len(input_ids) > Config.tokenizer_max_length:
@@ -140,4 +140,5 @@ trainer.train()
 trainer.save_model()
 
 # 保存训练状态（包括优化器状态等）
+
 trainer.save_state()
