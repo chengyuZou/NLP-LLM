@@ -21,8 +21,8 @@ class Config:
     lora_target_modules = ["o_proj", "gate_proj", "down_proj"] # 适配器模块
 
     # ===== 训练参数 ======
-    apapter_output_dir = "../models/lora_legal_qa_adapter" # 保存适配器的目录路径
-    new_apapter_output_dir = "../models/lora_new_legal_qa_adapter" # 使用三元组数据训练后的适配器路径
+    adapter_output_dir = "../models/lora_legal_qa_adapter" # 保存适配器的目录路径
+    new_adapter_output_dir = "../models/lora_new_legal_qa_adapter" # 使用三元组数据训练后的适配器路径
     overwrite_output_dir = True, # 覆盖输出目录中的内容
     num_train_epochs = 3 # 训练轮数
     per_device_train_batch_size = 4 # 每个设备的训练批次大小
@@ -66,4 +66,5 @@ class Config:
     evaluation_sample_size = 200 # 从语料库中随机抽取200条进行评测
 
     # 设置随机数种子
+
     seed = 42 
